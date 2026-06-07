@@ -1,0 +1,23 @@
+name: "cheese"
+version: "1.0.0"
+config-version: 2
+
+profile: "cheese"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+target-path: "target"
+
+models:
+  cheese:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  cheese:
+    +schema: staging

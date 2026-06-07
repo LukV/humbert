@@ -1,0 +1,8 @@
+cheese:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Relative to the project dir (dbt runs there); matches engine.warehouse_path().
+      path: warehouse.duckdb
+      threads: 4

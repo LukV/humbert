@@ -17,7 +17,7 @@ See [[#On deck]] for the next pickup.
 
 ## On deck
 
-Next in block 1: the **CLI** (`init` / `connect` / `start`), then the **semantic-layer module**, then **pack scaffolding** — see [[blocks/01-setup-and-bootstrap]].
+Next in block 1: the **semantic-layer module** (propose-then-validate, compile + run a selection), then **pack scaffolding** (the full `domain/ context/ introspection/ tests/` pack + the public-only guard) — see [[blocks/01-setup-and-bootstrap]].
 
 ## How a pitch enters and leaves this page
 

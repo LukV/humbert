@@ -1,0 +1,30 @@
+semantic_models:
+  - name: cheese_production
+    description: Cheese production by country, milk source, and year.
+    model: ref('fct_cheese_production')
+    defaults:
+      agg_time_dimension: production_date
+    entities:
+      - name: cheese_record
+        type: primary
+        expr: country || '|' || product || '|' || cast(year as varchar)
+    dimensions:
+      - name: country
+        type: categorical
+      - name: product
+        type: categorical
+      - name: production_date
+        type: time
+        type_params:
+          time_granularity: day
+    measures:
+      - name: production_tonnes
+        description: Cheese produced, in tonnes.
+        agg: sum
+
+metrics:
+  - name: total_production
+    label: Total cheese production (tonnes)
+    type: simple
+    type_params:
+      measure: production_tonnes

@@ -58,6 +58,14 @@ Promote a draft cell to validated: freeze the query (no re-planning ever again),
 
 *Cut line:* a validated cell re-runs its frozen, parameterised query and records signer + snapshot.
 
+### Localization — en / nl — *medium*
+
+Bilingual UI and narratives. The CLI pitch ([[../pitches/shipped/cli]]) seeds `settings.locale` (`en`/`nl`, default `en`), injects `<html lang>` on `start`, and shows it in `status`; this pitch builds the machinery: a frontend string catalog for UI chrome (labels, buttons, stage indicators, refusal copy) and **narrative language** — the planner/narrator writes its answer in the configured locale. Dutch number formatting is already a design-language rule ([[../../product-design/010-design-language]]). Lands here because there's little to translate until the notebook UI and narratives exist.
+
+*Cut line:* with `locale: nl`, UI chrome and the generated narrative both render in Dutch; `en` is the default and unchanged.
+
+*Out of scope:* locales beyond `en`/`nl`; translating user data or metric labels (those come from the pack's `meta:`).
+
 ## Dependencies
 
 Needs block 1 (the connection and the semantic-layer module). Block 3 extends the cell with the refusal state and the certainty score's floor. Block 4 hooks the cell-finalised boundary to emit telemetry. Validation here is the precondition for the later **Brief** slot.
