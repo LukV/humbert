@@ -3,7 +3,7 @@ project: humbert
 type: planning-index
 status: active
 updated: 2026-06-07
-current_pitch: project-bootstrap
+current_pitch: null
 ---
 # In Cycle
 
@@ -11,16 +11,9 @@ What's being built right now. Usually one pitch. Occasionally two, if they're sm
 
 ## Currently
 
-### [[pitches/project-bootstrap]] — chunky
+*Nothing in cycle yet.*
 
-Started 2026-06-07.
-
-The ground floor: a monorepo (`apps/api/` Python 3.13 + `apps/web/` React/TS/Vite/Tailwind v4) wired to the stack note, with CI, a read-first `CLAUDE.md`, the cycle skills realigned off their Lumen paths, and the skin token plumbing in place (default Humbert skin + stub Proef skin proving the runtime CSS-variable swap). No CLI commands, no semantic-layer module — those are sibling pitches.
-
-**Cut line:** a repo that builds, lints, type-checks, tests, and runs CI green on an empty skeleton, with `CLAUDE.md` pointing at the design + planning notes.
-
-**Status notes:**
-- 2026-06-07 — started. Stack decisions locked in [[../architecture/001-stack-decisions]]: Vite SPA (not Next.js), runtime CSS-variable skin swap, Python 3.13.
+See [[#On deck]] for the next pickup.
 
 ## On deck
 

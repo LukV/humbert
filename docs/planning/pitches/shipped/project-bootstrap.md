@@ -1,11 +1,12 @@
 ---
 project: humbert
 type: pitch
-status: in-cycle
+status: shipped
 block: setup
 appetite: chunky
 created: 2026-06-07
 started: 2026-06-07
+shipped_on: 2026-06-07
 ---
 # Project bootstrap
 
@@ -94,4 +95,4 @@ A repo that builds, lints, type-checks, tests, and runs CI green on an empty ske
 
 ## What actually happened
 
-*(Fill in when the pitch ships or is dropped.)*
+Landed the monorepo ground floor: `apps/api/` (Python 3.13, uv, ruff + mypy strict + pytest, stub `humbert` CLI entry point) and `apps/web/` (React 19 + TS + Vite 7 + Tailwind v4 SPA) both building green, plus `.github/workflows/ci.yml` mirroring the local gates, a read-first `CLAUDE.md`, and the `local-gates` skill realigned off its Lumen paths. We added on top of what was pitched the OSS license (Apache 2.0) and merged the READMEs to only one at the root of the repo.
