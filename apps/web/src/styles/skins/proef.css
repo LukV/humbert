@@ -1,0 +1,7 @@
+/* Proef skin (CJM) — stub. A few overridden tokens, only to prove the runtime
+   swap works. The real Proef brand (fonts, full palette, app name) is out of
+   scope for the bootstrap pitch. Values below are placeholders, not the brand. */
+:root[data-skin="proef"] {
+  --color-brand: #0a6b5b;
+  --color-paper: #f6f8f7;
+}

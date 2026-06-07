@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Non-default skins override the token values, scoped to the active skin.
+   Imported here (must precede non-import rules); each skin uses a
+   :root[data-skin="…"] selector, which beats the @theme :root defaults on
+   specificity — so the runtime swap is order-independent, not a source-order
+   trick. See docs/architecture/001-stack-decisions.md. */
+@import "./skins/proef.css";
+
+/* The Humbert skin is the reference set: token names + default values.
+   @theme emits these as :root CSS variables and generates the utilities
+   (--color-brand → bg-brand / text-brand), which reference var(), so a skin
+   override of the variable cascades everywhere. */
+@theme {
+  --color-paper: #fbfaf7;
+  --color-ink: #1a1a1a;
+  --color-brand: #4a2d4f; /* aubergine — validation & trust (010-design-language §5) */
+  --color-caution: #b8860b; /* amber — caution */
+
+  --font-narrative: "Source Serif 4", Georgia, serif;
+  --font-ui: "DM Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
