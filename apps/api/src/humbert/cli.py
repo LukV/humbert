@@ -12,7 +12,7 @@ from typing import NoReturn
 
 import typer
 
-from humbert import __version__, engine
+from humbert import __version__, engine, semantic
 from humbert.config import (
     Config,
     Connection,
@@ -148,6 +148,99 @@ def _health_summary(connection: Connection) -> str:
     if connection.unavailable_count is not None:
         parts.append(f"{connection.unavailable_count} unavailable")
     return f"   ({' · '.join(parts)})"
+
+
+@app.command()
+def vocab() -> None:
+    """List the metrics and dimensions the active source exposes."""
+    project = _active_project()
+    try:
+        vocabulary = semantic.discover_vocabulary(project)
+    except engine.EngineError as err:
+        _fail(str(err))
+
+    if not vocabulary.metrics:
+        typer.echo("No metrics found in the active source.")
+        return
+    for metric in vocabulary.metrics:
+        typer.echo(metric.name)
+        for dim in metric.dimensions:
+            grain = f"   grains: {dim.grain}" if dim.kind == "time" and dim.grain else ""
+            typer.echo(f"  {dim.name:<32} {dim.kind}{grain}")
+
+
+@app.command()
+def query(
+    metric: list[str] = typer.Option(..., "--metric", "-m", help="Metric to query (repeatable)."),
+    by: list[str] = typer.Option([], "--by", help="Dimension to group by (repeatable)."),
+    where: list[str] = typer.Option(
+        [], "--where", help="MetricFlow filter expression (repeatable, passed through)."
+    ),
+    order: list[str] = typer.Option(
+        [], "--order", help="Order by a metric/dimension; prefix '-' for descending (repeatable)."
+    ),
+    limit: int | None = typer.Option(None, "--limit", help="Max rows to return."),
+    grain: str | None = typer.Option(
+        None, "--grain", help="Time grain for grouped time dimensions (e.g. year)."
+    ),
+    sql: bool = typer.Option(False, "--sql", help="Also print the compiled SQL."),
+) -> None:
+    """Resolve a selection against the vocabulary and run it. Unknown names are reported."""
+    project = _active_project()
+    selection = semantic.Selection(
+        metrics=metric,
+        group_by=by,
+        where=where,
+        order_by=order,
+        limit=limit,
+        time_grain=grain,
+    )
+    try:
+        vocabulary = semantic.discover_vocabulary(project)
+    except engine.EngineError as err:
+        _fail(str(err))
+
+    resolved = semantic.resolve(selection, vocabulary)
+    if isinstance(resolved, semantic.Unresolved):
+        typer.echo("Selection did not resolve:", err=True)
+        for problem in resolved.problems:
+            typer.echo(f"  · {problem}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        result = semantic.run(resolved, vocabulary, project)
+    except engine.EngineError as err:
+        _fail(str(err))
+
+    _print_table(result.columns, result.rows)
+    if sql:
+        typer.echo("")
+        typer.echo(result.compiled_sql)
+
+
+def _active_project() -> Path:
+    """The active connection's dbt project dir, or fail with direction."""
+    connection = load_config().active
+    if connection is None:
+        _fail("No active connection. Run `humbert connect <dbt-project>` first.")
+    return Path(connection.project_dir)
+
+
+def _print_table(columns: list[str], rows: list[list[str]]) -> None:
+    """Print rows as a simple fixed-width table."""
+    if not columns:
+        typer.echo("(no rows)")
+        return
+    widths = [len(c) for c in columns]
+    for row in rows:
+        for i, cell in enumerate(row):
+            if i < len(widths):
+                widths[i] = max(widths[i], len(cell))
+    header = "  ".join(c.ljust(widths[i]) for i, c in enumerate(columns))
+    typer.echo(header)
+    typer.echo("  ".join("-" * w for w in widths))
+    for row in rows:
+        typer.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)))
 
 
 @app.command()

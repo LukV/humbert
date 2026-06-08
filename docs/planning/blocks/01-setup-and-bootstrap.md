@@ -17,8 +17,6 @@ Design: [[../../product-design/004-semantic-layer]]. Stack: [[../../architecture
 
 ## Open design items
 - **Agent framework** (PydanticAI?) — decide here; it shapes block 2. [[../../architecture/001-stack-decisions]].
-- **Next.js vs plain React/Vite** for the frontend shell.
-- **Skin swap mechanism** — runtime CSS-variable swap (recommended) vs build-time bundles, and where the per-skin token files live. The default **Humbert** skin plus a **Proef** skin (CJM's fonts/colours/name) is the v0 target; selection is by `settings.theme`. See [[../../architecture/001-stack-decisions#Skinning — per-client design system]].
 - **Pack physical layout** — the pack is the governed slice from the marts up, in one dbt project; confirm the `pack/` directory shape (`domain/ context/ introspection/ tests/`).
 
 ## Pitches

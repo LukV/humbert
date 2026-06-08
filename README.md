@@ -41,9 +41,25 @@ uv run humbert start                           # serve on http://localhost:8000
 | `humbert init [name]` | Scaffold `~/.humbert/` and register a project. |
 | `humbert connect <dbt-project> [--name] [--schema] [--build]` | Attach a dbt + MetricFlow source (needs the `dbt` extra). |
 | `humbert status` | Show the active connection, exposed schema(s), health, skin, locale. |
+| `humbert vocab` | List the metrics and dimensions the active source exposes. |
+| `humbert query -m <metric> [--by] [--where] [--order] [--limit] [--grain] [--sql]` | Run a selection against the source; report unknown names. |
 | `humbert start [--port] [--no-browser]` | Boot the runtime and serve the UI. |
 
-Only `connect` needs `--extra dbt`; `init` / `status` / `start` run on the core install.
+`connect` / `vocab` / `query` need `--extra dbt`; `init` / `status` / `start` run on the core install.
+
+### Asking the source
+
+Before any notebook UI, the semantic layer is driveable from the CLI. `vocab` shows what you can ask; `query` composes a selection, validates every name against that vocabulary, then runs it through MetricFlow.
+
+```bash
+uv run humbert vocab                          # what metrics + dimensions exist?
+
+# rank cheese-producing countries, biggest first, with the compiled SQL
+uv run humbert query -m total_production \
+  --by cheese_record__country --order -total_production --limit 6 --sql
+```
+
+`--by` groups, `--where` filters (a MetricFlow expression, passed through), `--order` sorts (prefix `-` for descending), `--grain` sets the time grain, and `--sql` prints the SQL MetricFlow generated. An unknown metric or dimension is reported by name rather than run — nothing reaches the warehouse until it resolves.
 
 ## Layout
 

@@ -7,11 +7,16 @@ readers and the fatal/degraded logic are real.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from humbert import engine
+
+
+def _completed(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
 
 
 def _write_artifacts(
@@ -60,7 +65,7 @@ def test_models_in_schemas_filters_by_layer(tmp_path: Path) -> None:
 
 def test_metric_names(tmp_path: Path) -> None:
     _write_artifacts(tmp_path, models={}, metrics=["total_production", "avg_production"])
-    assert engine._metric_names(tmp_path) == ["total_production", "avg_production"]
+    assert engine.metric_names(tmp_path) == ["total_production", "avg_production"]
 
 
 def test_introspect_no_models_in_exposed_schema_is_fatal(
@@ -100,3 +105,77 @@ def test_introspect_degraded_counts_unavailable(
     health = engine.introspect(tmp_path, ["marts"])
     assert health.unavailable_count == 1
     assert health.issues[0].severity == "degraded"
+
+
+# --- Vocabulary discovery + run-path parsing ------------------------------
+
+
+def test_dimensions_parses_bullet_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "ensure_available", lambda: None)
+    stdout = (
+        "✔ 🌱 We've found 4 common dimensions for metrics ['total_production'].\n"
+        "• cheese_record__country\n"
+        "• cheese_record__product\n"
+        "• cheese_record__production_date\n"
+        "• metric_time\n"
+    )
+    monkeypatch.setattr(engine, "_run", lambda args, project_dir: _completed(stdout))
+    assert engine.dimensions(tmp_path, "total_production") == [
+        "cheese_record__country",
+        "cheese_record__product",
+        "cheese_record__production_date",
+        "metric_time",
+    ]
+
+
+def test_dimensions_fatal_on_nonzero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "ensure_available", lambda: None)
+    monkeypatch.setattr(engine, "_run", lambda args, project_dir: _completed("boom", returncode=1))
+    with pytest.raises(engine.EngineError, match="mf list dimensions"):
+        engine.dimensions(tmp_path, "total_production")
+
+
+def test_dimension_types_reads_kind_and_grain(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "semantic_manifest.json").write_text(
+        json.dumps(
+            {
+                "semantic_models": [
+                    {
+                        "defaults": {"agg_time_dimension": "production_date"},
+                        "dimensions": [
+                            {"name": "country", "type": "categorical"},
+                            {
+                                "name": "production_date",
+                                "type": "time",
+                                "type_params": {"time_granularity": "day"},
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    types = engine.dimension_types(tmp_path)
+    assert types["country"].kind == "categorical"
+    assert types["production_date"].kind == "time"
+    assert types["production_date"].grain == "day"
+    # metric_time is synthetic, with the agg-time dimension's grain.
+    assert types["metric_time"].kind == "time"
+    assert types["metric_time"].grain == "day"
+
+
+def test_query_sql_extracts_after_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "ensure_available", lambda: None)
+    stdout = (
+        "✔ Success 🦄 - query completed after 0.02 seconds\n"
+        "🔎 SQL (remove --explain to see data or add --show-dataflow-plan ...):\n"
+        "\n"
+        "SELECT\n  country AS cheese_record__country\nFROM marts.fct_cheese_production\n"
+    )
+    monkeypatch.setattr(engine, "_run", lambda args, project_dir: _completed(stdout))
+    sql = engine._query_sql(tmp_path, ["query", "--metrics", "total_production"])
+    assert sql.startswith("SELECT")
+    assert "FROM marts.fct_cheese_production" in sql
+    assert "Success" not in sql

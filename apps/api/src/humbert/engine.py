@@ -12,15 +12,22 @@ The functions read dbt's generated artifacts (`target/manifest.json`,
 
 from __future__ import annotations
 
+import csv
 import json
 import os
+import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 Severity = Literal["fatal", "degraded"]
+DimensionKind = Literal["categorical", "time"]
+
+# mf decorates its output with ANSI colour codes; strip them before parsing.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class EngineError(Exception):
@@ -134,7 +141,7 @@ def _models_in_schemas(project_dir: Path, exposed_schemas: list[str]) -> list[st
     return models
 
 
-def _metric_names(project_dir: Path) -> list[str]:
+def metric_names(project_dir: Path) -> list[str]:
     manifest = _read_json(project_dir / "target" / "semantic_manifest.json")
     metrics = manifest.get("metrics", [])
     names: list[str] = []
@@ -171,7 +178,7 @@ def introspect(project_dir: Path, exposed_schemas: list[str]) -> Health:
             "Did the marts layer get renamed? Re-run `connect --schema <layer>`."
         )
 
-    metrics = _metric_names(project_dir)
+    metrics = metric_names(project_dir)
     issues = _validate_configs(project_dir)
     unavailable = sum(1 for issue in issues if issue.severity == "degraded")
 
@@ -182,3 +189,140 @@ def introspect(project_dir: Path, exposed_schemas: list[str]) -> Health:
         metrics=metrics,
         issues=issues,
     )
+
+
+# --- Vocabulary discovery -------------------------------------------------
+#
+# Two reads feed the semantic module's `Vocabulary`: the authoritative list of
+# dimension names per metric (from `mf list`, which knows the join graph), and
+# their type/grain (from the semantic manifest, which the CLI text doesn't show).
+
+
+@dataclass
+class DimensionMeta:
+    """A dimension's kind and (for time dimensions) its grain."""
+
+    kind: DimensionKind
+    grain: str | None = None
+
+
+def dimensions(project_dir: Path, metric: str) -> list[str]:
+    """Dimension names available to a metric, in MetricFlow's dunder form.
+
+    Authoritative because ``mf`` resolves the join graph — we don't reconstruct
+    it from the manifest. Parses the ``• name`` lines out of the CLI output.
+    """
+    ensure_available()
+    result = _run(["mf", "list", "dimensions", "--metrics", metric], project_dir)
+    if result.returncode != 0:
+        raise EngineError(
+            f"`mf list dimensions` failed for {metric}:\n{result.stdout}\n{result.stderr}".strip()
+        )
+    names: list[str] = []
+    for raw in result.stdout.splitlines():
+        line = _ANSI.sub("", raw).strip()
+        if line.startswith("•"):
+            name = line[1:].strip().split()[0] if line[1:].strip() else ""
+            if name:
+                names.append(name)
+    return names
+
+
+def dimension_types(project_dir: Path) -> dict[str, DimensionMeta]:
+    """Map each dimension (by its short name) to its kind and grain.
+
+    Keyed by the bare dimension name (``country``) so a dunder name
+    (``cheese_record__country``) resolves by its suffix. ``metric_time`` is
+    added explicitly — it's synthetic, with the grain of the agg-time dimension.
+    """
+    manifest = _read_json(project_dir / "target" / "semantic_manifest.json")
+    out: dict[str, DimensionMeta] = {}
+    agg_grain: str | None = None
+    semantic_models = manifest.get("semantic_models", [])
+    if isinstance(semantic_models, list):
+        for model in semantic_models:
+            if not isinstance(model, dict):
+                continue
+            agg_time = (model.get("defaults") or {}).get("agg_time_dimension")
+            for dim in model.get("dimensions", []) or []:
+                if not isinstance(dim, dict) or not isinstance(dim.get("name"), str):
+                    continue
+                kind: DimensionKind = "time" if dim.get("type") == "time" else "categorical"
+                grain = None
+                if kind == "time":
+                    grain = (dim.get("type_params") or {}).get("time_granularity")
+                out[dim["name"]] = DimensionMeta(kind=kind, grain=grain)
+                if dim["name"] == agg_time:
+                    agg_grain = grain
+    out["metric_time"] = DimensionMeta(kind="time", grain=agg_grain)
+    return out
+
+
+# --- Compile + run --------------------------------------------------------
+
+
+@dataclass
+class QueryResult:
+    columns: list[str]
+    rows: list[list[str]]
+    compiled_sql: str
+
+
+def query(
+    project_dir: Path,
+    *,
+    metrics: list[str],
+    group_by: list[str],
+    where: list[str],
+    order_by: list[str],
+    limit: int | None,
+) -> QueryResult:
+    """Run a resolved selection through ``mf query`` — rows + compiled SQL.
+
+    The caller is responsible for having validated names against the vocabulary;
+    this is the mechanical compile-and-run. Two invocations: ``--csv`` for the
+    rows (mf writes a file), ``--explain`` for the SQL.
+    """
+    ensure_available()
+    flags: list[str] = ["query", "--metrics", ",".join(metrics)]
+    if group_by:
+        flags += ["--group-by", ",".join(group_by)]
+    for expr in where:
+        flags += ["--where", expr]
+    if order_by:
+        flags += ["--order", ",".join(order_by)]
+    if limit is not None:
+        flags += ["--limit", str(limit)]
+
+    columns, rows = _query_rows(project_dir, flags)
+    compiled_sql = _query_sql(project_dir, flags)
+    return QueryResult(columns=columns, rows=rows, compiled_sql=compiled_sql)
+
+
+def _query_rows(project_dir: Path, flags: list[str]) -> tuple[list[str], list[list[str]]]:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as handle:
+        out_path = Path(handle.name)
+    try:
+        result = _run(["mf", *flags, "--csv", str(out_path)], project_dir)
+        if result.returncode != 0:
+            raise EngineError(f"`mf query` failed:\n{result.stdout}\n{result.stderr}".strip())
+        with out_path.open(newline="") as fh:
+            reader = csv.reader(fh)
+            table = list(reader)
+    finally:
+        out_path.unlink(missing_ok=True)
+    if not table:
+        return [], []
+    return table[0], table[1:]
+
+
+def _query_sql(project_dir: Path, flags: list[str]) -> str:
+    result = _run(["mf", *flags, "--explain"], project_dir)
+    if result.returncode != 0:
+        raise EngineError(f"`mf query --explain` failed:\n{result.stdout}\n{result.stderr}".strip())
+    lines = [_ANSI.sub("", raw) for raw in result.stdout.splitlines()]
+    for i, line in enumerate(lines):
+        if "SQL" in line and "--explain" in line:
+            return "\n".join(lines[i + 1 :]).strip()
+    # No marker found — return the cleaned output rather than nothing.
+    return "\n".join(lines).strip()

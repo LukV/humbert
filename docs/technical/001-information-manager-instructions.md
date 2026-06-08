@@ -2,7 +2,7 @@
 project: humbert
 type: technical
 status: living
-updated: 2026-06-07
+updated: 2026-06-08
 ---
 # Information-manager instructions
 
@@ -71,6 +71,35 @@ The **health line** — `N models · M metrics · K unavailable` — is what to 
 - **Degraded** — the project attaches, but some metrics are unavailable (e.g. a
   metric points at a column that's gone). `K unavailable` counts them; the rest
   keep working. Treat a rising count as a backlog to fix in the semantic layer.
+
+## Checking what the semantic layer exposes
+
+Two commands let you inspect — and test — the layer Humbert reads, before any
+notebook UI exists. They run through MetricFlow, so they need the `dbt` extra.
+
+```bash
+humbert vocab                                  # the metrics + dimensions on offer
+```
+
+`vocab` lists each metric and the dimensions you can group or filter it by, with
+each dimension's kind (categorical / time) and, for time, its grain. This is the
+authored vocabulary — if a metric or dimension you expect is missing, it's a
+semantic-layer issue to fix, not a Humbert one.
+
+```bash
+# run a selection: a metric, grouped, ordered, limited
+humbert query -m total_production \
+  --by cheese_record__country --order -total_production --limit 6 --sql
+```
+
+`query` composes a selection and validates every name against the vocabulary
+*before* it runs — an unknown metric or dimension is reported by name, and
+nothing reaches the warehouse until it resolves. Use it to confirm a metric
+returns the numbers you expect. Dimension names follow MetricFlow's convention
+(`<entity>__<dimension>`, e.g. `cheese_record__country`); `humbert vocab` shows
+the exact names. `--where` takes a MetricFlow filter expression (passed through
+as-is), `--grain` sets the time grain, and `--sql` prints the SQL MetricFlow
+generated — handy for checking what actually ran.
 
 ## Maintaining a source
 

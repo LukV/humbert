@@ -17,7 +17,7 @@ See [[#On deck]] for the next pickup.
 
 ## On deck
 
-Next in block 1: the **semantic-layer module** (propose-then-validate, compile + run a selection), then **pack scaffolding** (the full `domain/ context/ introspection/ tests/` pack + the public-only guard) — see [[blocks/01-setup-and-bootstrap]].
+Last in block 1: **pack scaffolding** (the full `domain/ context/ introspection/ tests/` pack + the public-only guard) — see [[blocks/01-setup-and-bootstrap]]. Then block 2 opens with two-call orchestration (Tier 1).
 
 ## How a pitch enters and leaves this page
 
