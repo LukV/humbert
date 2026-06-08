@@ -1,3 +1,9 @@
+## v0.14.0 (2026-06-08)
+
+### Feat
+
+- **semantic**: public-only guard — model-level classification, default-deny
+
 ## v0.13.0 (2026-06-08)
 
 ### Feat
