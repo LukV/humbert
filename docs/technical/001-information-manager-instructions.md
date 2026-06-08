@@ -52,25 +52,55 @@ humbert connect /path/to/project --schema marts,gold
 If you rename or move that layer in dbt, `connect` will tell you it found no
 models in the exposed schema — re-run with the right `--schema`.
 
+### Classification — the public-only guard
+
+Exposing the right *schema* says which models Humbert may read. Classification
+says which of them are safe to expose at all. v0 runs on **public data only**,
+and Humbert enforces that rather than trusting it: a metric is exposed **only if
+every model it reads is classified `open`**.
+
+Classification rides in dbt `meta:`, at the model level. Classify the governed
+layer once, in `dbt_project.yml`:
+
+```yaml
+models:
+  your_project:
+    marts:
+      +meta:
+        classification: open
+```
+
+The guard is **default-deny**: a model with no classification counts as
+not-open and is withheld. Forgetting to classify hides data, never leaks it — so
+when you add a new mart, you also classify it, or it won't appear. `connect` and
+`status` report `K withheld`, and `humbert vocab` lists exactly which metrics
+were withheld and why. If *everything* is withheld, the layer isn't classified
+yet — add `classification: open` and reconnect.
+
+v0 stops at the model level; per-column classification, masking, and disclosure
+arrive when non-open data does.
+
 ## Reading `humbert status`
 
 ```
 Connection:  cheese
 Project:     /…/examples/cheese   (dbt + DuckDB)
-Exposed:     marts   (4 models · 1 metrics · 0 unavailable)
+Exposed:     marts   (4 models · 1 metrics · 0 unavailable · 0 withheld)
 Warehouse:   /…/examples/cheese/warehouse.duckdb   (built 2026-06-07 14:02)
 Skin:        humbert
 Locale:      en
 ```
 
-The **health line** — `N models · M metrics · K unavailable` — is what to watch.
-`connect` sorts problems into two kinds:
+The **health line** — `N models · M metrics · K unavailable · W withheld` — is
+what to watch. `connect` sorts problems into kinds:
 
 - **Fatal** — the project won't parse, or the exposed layer is empty. Nothing
   attaches; fix the dbt project and reconnect.
 - **Degraded** — the project attaches, but some metrics are unavailable (e.g. a
   metric points at a column that's gone). `K unavailable` counts them; the rest
   keep working. Treat a rising count as a backlog to fix in the semantic layer.
+- **Withheld** — the metric is fine, but its data isn't classified `open`, so the
+  guard holds it back. `W withheld` counts them; classify the model to expose it.
 
 ## Checking what the semantic layer exposes
 

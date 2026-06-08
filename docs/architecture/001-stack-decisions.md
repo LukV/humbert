@@ -2,7 +2,7 @@
 project: humbert
 type: architecture
 status: active
-updated: 2026-06-07
+updated: 2026-06-08
 ---
 # Stack decisions
 
@@ -58,6 +58,15 @@ Humbert routes Tier 1 through dbt + MetricFlow. This is a deliberate bet, taken 
 - **The exit is pre-built, not hypothetical.** The durable substrate is dbt-core + DuckDB + the marts; MetricFlow is a replaceable top layer. **Tier 2 (model-authored SQL over the governed marts) already answers questions without MetricFlow** ([[../product-design/009-orchestration]]) — so the floor under us is always plain SQL against DuckDB tables. If the licence turns, we pin/fork the last Apache MetricFlow (Apache permits the fork) or fall back to SQL-over-marts; the hardwired dbt commands change in one file.
 
 This is why hardwiring dbt commands into `connect` is acceptable: the coupling is real but contained, and getting out is a localised change, not a rewrite.
+
+## Classification & the public-only guard — model-level, default-deny
+
+v0 runs on public data only ([[../product-design/004-semantic-layer]]), and that promise is enforced, not assumed:
+
+- **Classification rides in dbt `meta:`, at the model level.** A marts model declares `meta: { classification: open }`. v0 stops at model granularity — per-attribute/column classification, masking, and disclosure are deferred until non-open data is actually connected (the design defers them too). Coarse open/not-open is exactly enough to hold the v0 promise.
+- **The guard is default-deny.** A metric is exposed only if *every* model it reads is classified `open`; an **unclassified** model is treated as not-open and withheld. Forgetting to classify hides data rather than leaking it — the fail-safe direction.
+- **Enforced at the vocabulary chokepoint.** The classification *read* lives in the engine adapter (parsing `meta:` from `manifest.json`); the *policy* (default-deny, what to withhold) lives in the semantic-layer module where the `Vocabulary` is assembled. Every downstream consumer — `vocab`, `query`, and block 2's Tier 1/Tier 2 — inherits the fence for free, without knowing classification exists. Building it here, before block 2 gives the chokepoint consumers, avoids retrofitting every data-reaching path later.
+- **Withhold-and-report, not abort.** `connect`/`status` report how many objects were withheld; the connect fails only if the filter leaves the exposed layer empty (with a message naming the fix). A strict mode that hard-fails on any unclassified model is deferred until a real project wants it.
 
 ## Open — decide before the block that needs them
 

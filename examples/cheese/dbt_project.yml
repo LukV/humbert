@@ -17,6 +17,10 @@ models:
     marts:
       +materialized: table
       +schema: marts
+      # Humbert's public-only guard exposes a metric only if every model it
+      # reads is classified `open`. The marts layer is the governed public slice.
+      +meta:
+        classification: open
 
 seeds:
   cheese:

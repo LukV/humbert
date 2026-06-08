@@ -17,7 +17,7 @@ See [[#On deck]] for the next pickup.
 
 ## On deck
 
-Last in block 1: **pack scaffolding** (the full `domain/ context/ introspection/ tests/` pack + the public-only guard) — see [[blocks/01-setup-and-bootstrap]]. Then block 2 opens with two-call orchestration (Tier 1).
+Block 2 opens next: **two-call orchestration (Tier 1)** — the plan → run → narrate spine, the first time the LLM calls the semantic-layer module. See [[blocks/02-notebook-and-orchestration]].
 
 ## How a pitch enters and leaves this page
 

@@ -96,11 +96,27 @@ def test_vocab_without_connection(home: Path) -> None:
 
 def test_vocab_lists_metrics_and_dimensions(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _activate()
-    monkeypatch.setattr(semantic, "discover_vocabulary", lambda p: _cheese_vocab())
+    monkeypatch.setattr(semantic, "load_pack", lambda p: semantic.Pack(_cheese_vocab()))
     result = runner.invoke(app, ["vocab"])
     assert result.exit_code == 0
     assert "total_production" in result.stdout
     assert "cheese_record__country" in result.stdout
+
+
+def test_vocab_reports_withheld(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _activate()
+    monkeypatch.setattr(
+        semantic,
+        "load_pack",
+        lambda p: semantic.Pack(
+            _cheese_vocab(),
+            withheld=[semantic.Withheld("secret_metric", "reads non-open model(s): fct_secret")],
+        ),
+    )
+    result = runner.invoke(app, ["vocab"])
+    assert result.exit_code == 0
+    assert "Withheld by the public-only guard (1)" in result.stdout
+    assert "secret_metric" in result.stdout
 
 
 def test_query_reports_unresolved(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

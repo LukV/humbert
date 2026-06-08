@@ -32,6 +32,13 @@ def test_vocabulary_exposes_total_production() -> None:
     assert "metric_time" in names
 
 
+def test_pack_passes_its_own_guard() -> None:
+    """The cheese marts are classified `open`, so nothing is withheld."""
+    pack = semantic.load_pack(CHEESE)
+    assert pack.withheld == []
+    assert "total_production" in pack.vocabulary.metric_names()
+
+
 def test_query_ranks_germany_top() -> None:
     """The acceptance check: real production reality, through the whole module."""
     vocab = semantic.discover_vocabulary(CHEESE)

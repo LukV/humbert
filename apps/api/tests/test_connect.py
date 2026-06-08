@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from humbert import config, engine
+from humbert import config, engine, semantic
 from humbert.cli import app
 
 runner = CliRunner()
@@ -22,6 +22,11 @@ runner = CliRunner()
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HUMBERT_HOME", str(tmp_path / "home"))
     return tmp_path
+
+
+def _all_open(monkeypatch: pytest.MonkeyPatch, *metrics: str) -> None:
+    """Stub the guard so every metric is exposed (nothing withheld)."""
+    monkeypatch.setattr(semantic, "classify_metrics", lambda p: (list(metrics), []))
 
 
 def _make_dbt_project(path: Path) -> Path:
@@ -49,6 +54,7 @@ def test_connect_records_and_activates(home: Path, monkeypatch: pytest.MonkeyPat
             model_count=4, metric_count=2, unavailable_count=0, metrics=["total_production"]
         ),
     )
+    _all_open(monkeypatch, "total_production")
 
     result = runner.invoke(app, ["connect", str(project), "--schema", "marts,gold"])
     assert result.exit_code == 0, result.stderr
@@ -61,6 +67,7 @@ def test_connect_records_and_activates(home: Path, monkeypatch: pytest.MonkeyPat
     assert conn.project_dir == str(project)
     assert conn.exposed_schemas == ["marts", "gold"]
     assert conn.metric_count == 2
+    assert conn.withheld_count == 0
 
 
 def test_connect_skips_build_when_warehouse_exists(
@@ -75,6 +82,7 @@ def test_connect_skips_build_when_warehouse_exists(
         "introspect",
         lambda p, schemas: engine.Health(4, 2, 0, ["total_production"]),
     )
+    _all_open(monkeypatch, "total_production")
 
     result = runner.invoke(app, ["connect", str(project)])
     assert result.exit_code == 0, result.stderr
@@ -87,6 +95,7 @@ def test_connect_build_flag_forces_rebuild(home: Path, monkeypatch: pytest.Monke
     built: list[Path] = []
     monkeypatch.setattr(engine, "build", lambda p: built.append(p))
     monkeypatch.setattr(engine, "introspect", lambda p, schemas: engine.Health(4, 2, 0))
+    _all_open(monkeypatch, "total_production")
 
     result = runner.invoke(app, ["connect", str(project), "--build"])
     assert result.exit_code == 0, result.stderr
@@ -107,3 +116,22 @@ def test_connect_surfaces_fatal_engine_error(home: Path, monkeypatch: pytest.Mon
     assert "No models found" in result.stderr
     # Nothing recorded on failure.
     assert config.load_config().active_connection is None
+
+
+def test_connect_records_withheld_metrics(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _make_dbt_project(home / "cheese")
+    monkeypatch.setattr(engine, "build", lambda p: None)
+    monkeypatch.setattr(engine, "introspect", lambda p, schemas: engine.Health(4, 1, 0))
+    monkeypatch.setattr(
+        semantic,
+        "classify_metrics",
+        lambda p: ([], [semantic.Withheld("total_production", "reads non-open model(s): fct")]),
+    )
+
+    result = runner.invoke(app, ["connect", str(project)])
+    assert result.exit_code == 0, result.stderr
+    assert "1 withheld" in result.stdout
+    assert "All metrics withheld" in result.stdout
+    conn = config.load_config().active
+    assert conn is not None
+    assert conn.withheld_count == 1

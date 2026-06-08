@@ -112,11 +112,59 @@ class Result:
     compiled_sql: str
 
 
-def discover_vocabulary(project_dir: Path) -> Vocabulary:
-    """Read the metrics and their dimensions (with kind/grain) from the source."""
-    types = engine.dimension_types(project_dir)
-    metrics: list[MetricInfo] = []
+@dataclass
+class Withheld:
+    """A metric the public-only guard refused to expose, and why."""
+
+    metric: str
+    reason: str
+
+
+@dataclass
+class Pack:
+    """The loaded pack: the exposed vocabulary plus what the guard withheld."""
+
+    vocabulary: Vocabulary
+    withheld: list[Withheld] = field(default_factory=list)
+
+
+def classify_metrics(project_dir: Path) -> tuple[list[str], list[Withheld]]:
+    """The public-only guard: split metrics into exposed vs withheld.
+
+    Default-deny — a metric is exposed only if *every* model it reads is
+    classified ``open``. An unclassified model counts as not-open, so forgetting
+    to classify hides data rather than leaking it. A metric whose source model
+    can't be resolved is withheld too: we can't confirm it's open.
+    """
+    classes = engine.classifications(project_dir)
+    metric_models = engine.metric_source_models(project_dir)
+    exposed: list[str] = []
+    withheld: list[Withheld] = []
     for name in engine.metric_names(project_dir):
+        models = metric_models.get(name) or []
+        not_open = [m for m in models if classes.get(m) != "open"]
+        if not models:
+            withheld.append(
+                Withheld(name, "no source model resolved — cannot confirm classification")
+            )
+        elif not_open:
+            withheld.append(Withheld(name, f"reads non-open model(s): {', '.join(not_open)}"))
+        else:
+            exposed.append(name)
+    return exposed, withheld
+
+
+def load_pack(project_dir: Path) -> Pack:
+    """Load the connected dbt project as a classified pack.
+
+    Only ``open`` metrics make it into the vocabulary; the rest are recorded as
+    withheld. Every downstream consumer (``vocab``, ``query``, block 2's tiers)
+    reads the vocabulary and so inherits the guard for free.
+    """
+    types = engine.dimension_types(project_dir)
+    exposed, withheld = classify_metrics(project_dir)
+    metrics: list[MetricInfo] = []
+    for name in exposed:
         dims: list[DimensionInfo] = []
         for dunder in engine.dimensions(project_dir, name):
             short = dunder.split("__")[-1]
@@ -126,7 +174,12 @@ def discover_vocabulary(project_dir: Path) -> Vocabulary:
             else:
                 dims.append(DimensionInfo(name=dunder, kind=meta.kind, grain=meta.grain))
         metrics.append(MetricInfo(name=name, dimensions=dims))
-    return Vocabulary(metrics=metrics)
+    return Pack(vocabulary=Vocabulary(metrics=metrics), withheld=withheld)
+
+
+def discover_vocabulary(project_dir: Path) -> Vocabulary:
+    """The exposed vocabulary — the pack with the guard already applied."""
+    return load_pack(project_dir).vocabulary
 
 
 def resolve(selection: Selection, vocabulary: Vocabulary) -> ResolvedSelection | Unresolved:

@@ -179,3 +179,60 @@ def test_query_sql_extracts_after_marker(tmp_path: Path, monkeypatch: pytest.Mon
     assert sql.startswith("SELECT")
     assert "FROM marts.fct_cheese_production" in sql
     assert "Success" not in sql
+
+
+# --- classification reads (the guard's inputs) ----------------------------
+
+
+def test_classifications_reads_meta(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "manifest.json").write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "model.cheese.fct": {
+                        "resource_type": "model",
+                        "name": "fct",
+                        "config": {"meta": {"classification": "open"}},
+                    },
+                    "model.cheese.stg": {
+                        "resource_type": "model",
+                        "name": "stg",
+                        "config": {"meta": {}},
+                        "meta": {},
+                    },
+                }
+            }
+        )
+    )
+    classes = engine.classifications(tmp_path)
+    assert classes["fct"] == "open"
+    assert classes["stg"] is None  # unclassified
+
+
+def test_metric_source_models_traces_measure_to_model(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "semantic_manifest.json").write_text(
+        json.dumps(
+            {
+                "semantic_models": [
+                    {
+                        "node_relation": {"alias": "fct_cheese_production"},
+                        "measures": [{"name": "production_tonnes"}],
+                    }
+                ],
+                "metrics": [
+                    {
+                        "name": "total_production",
+                        "type_params": {
+                            "measure": {"name": "production_tonnes"},
+                            "input_measures": [{"name": "production_tonnes"}],
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    assert engine.metric_source_models(tmp_path) == {"total_production": ["fct_cheese_production"]}

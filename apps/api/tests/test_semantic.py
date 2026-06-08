@@ -32,8 +32,15 @@ def _cheese_vocab() -> semantic.Vocabulary:
 # --- discover_vocabulary --------------------------------------------------
 
 
+def _stub_open(monkeypatch: pytest.MonkeyPatch, metric: str = "total_production") -> None:
+    """Stub the engine reads so `metric` traces to a single open model."""
+    monkeypatch.setattr(engine, "metric_names", lambda p: [metric])
+    monkeypatch.setattr(engine, "classifications", lambda p: {"fct": "open"})
+    monkeypatch.setattr(engine, "metric_source_models", lambda p: {metric: ["fct"]})
+
+
 def test_discover_vocabulary_enriches_kind_and_grain(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(engine, "metric_names", lambda p: ["total_production"])
+    _stub_open(monkeypatch)
     monkeypatch.setattr(
         engine,
         "dimensions",
@@ -54,6 +61,60 @@ def test_discover_vocabulary_enriches_kind_and_grain(monkeypatch: pytest.MonkeyP
     assert by_name["cheese_record__country"].kind == "categorical"
     assert by_name["metric_time"].kind == "time"
     assert by_name["metric_time"].grain == "day"
+
+
+# --- the public-only guard ------------------------------------------------
+
+
+def test_classify_exposes_open_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "metric_names", lambda p: ["total_production"])
+    monkeypatch.setattr(engine, "classifications", lambda p: {"fct": "open"})
+    monkeypatch.setattr(engine, "metric_source_models", lambda p: {"total_production": ["fct"]})
+    exposed, withheld = semantic.classify_metrics(Path("/x"))
+    assert exposed == ["total_production"]
+    assert withheld == []
+
+
+def test_classify_withholds_non_open_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "metric_names", lambda p: ["secret_metric"])
+    monkeypatch.setattr(engine, "classifications", lambda p: {"fct_secret": "internal"})
+    monkeypatch.setattr(engine, "metric_source_models", lambda p: {"secret_metric": ["fct_secret"]})
+    exposed, withheld = semantic.classify_metrics(Path("/x"))
+    assert exposed == []
+    assert withheld[0].metric == "secret_metric"
+    assert "fct_secret" in withheld[0].reason
+
+
+def test_classify_default_deny_on_unclassified(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An unclassified model (None) is treated as not-open — withheld.
+    monkeypatch.setattr(engine, "metric_names", lambda p: ["m"])
+    monkeypatch.setattr(engine, "classifications", lambda p: {"fct": None})
+    monkeypatch.setattr(engine, "metric_source_models", lambda p: {"m": ["fct"]})
+    exposed, withheld = semantic.classify_metrics(Path("/x"))
+    assert exposed == []
+    assert len(withheld) == 1
+
+
+def test_classify_withholds_when_no_source_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "metric_names", lambda p: ["m"])
+    monkeypatch.setattr(engine, "classifications", lambda p: {})
+    monkeypatch.setattr(engine, "metric_source_models", lambda p: {"m": []})
+    exposed, withheld = semantic.classify_metrics(Path("/x"))
+    assert exposed == []
+    assert "cannot confirm" in withheld[0].reason
+
+
+def test_load_pack_excludes_withheld_from_vocabulary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "metric_names", lambda p: ["open_m", "secret_m"])
+    monkeypatch.setattr(engine, "classifications", lambda p: {"ok": "open", "no": "internal"})
+    monkeypatch.setattr(
+        engine, "metric_source_models", lambda p: {"open_m": ["ok"], "secret_m": ["no"]}
+    )
+    monkeypatch.setattr(engine, "dimension_types", lambda p: {})
+    monkeypatch.setattr(engine, "dimensions", lambda p, m: ["cheese_record__country"])
+    pack = semantic.load_pack(Path("/x"))
+    assert pack.vocabulary.metric_names() == {"open_m"}
+    assert [w.metric for w in pack.withheld] == ["secret_m"]
 
 
 # --- resolve --------------------------------------------------------------

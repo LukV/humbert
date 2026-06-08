@@ -70,6 +70,8 @@ class Connection(BaseModel):
     model_count: int | None = None
     metric_count: int | None = None
     unavailable_count: int | None = None
+    # Metrics the public-only guard refused to expose (not classified `open`).
+    withheld_count: int | None = None
 
 
 class Config(BaseModel):

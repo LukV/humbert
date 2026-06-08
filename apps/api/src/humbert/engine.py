@@ -258,6 +258,72 @@ def dimension_types(project_dir: Path) -> dict[str, DimensionMeta]:
     return out
 
 
+# --- Classification — the public-only guard's inputs ----------------------
+#
+# The guard's *policy* (default-deny) lives in the semantic module. Here we only
+# read the facts: each model's `meta.classification`, and which model(s) a metric
+# reads (so the policy can ask "are they all open?").
+
+
+def classifications(project_dir: Path) -> dict[str, str | None]:
+    """Each model's ``meta.classification`` (``None`` when unset)."""
+    manifest = _read_json(project_dir / "target" / "manifest.json")
+    out: dict[str, str | None] = {}
+    nodes = manifest.get("nodes", {})
+    if isinstance(nodes, dict):
+        for node in nodes.values():
+            if not isinstance(node, dict) or node.get("resource_type") != "model":
+                continue
+            name = node.get("name")
+            if not isinstance(name, str):
+                continue
+            config = node.get("config")
+            meta = (config.get("meta") if isinstance(config, dict) else None) or node.get("meta")
+            value = meta.get("classification") if isinstance(meta, dict) else None
+            out[name] = value if isinstance(value, str) else None
+    return out
+
+
+def metric_source_models(project_dir: Path) -> dict[str, list[str]]:
+    """Each metric's underlying dbt model(s), traced measure → semantic model.
+
+    A metric reads measures; each measure belongs to a semantic model whose
+    ``node_relation`` names the dbt model it's built on. That model carries the
+    classification the guard checks.
+    """
+    manifest = _read_json(project_dir / "target" / "semantic_manifest.json")
+    semantic_models = manifest.get("semantic_models", [])
+    metrics = manifest.get("metrics", [])
+    measure_to_model: dict[str, str] = {}
+    for model in semantic_models if isinstance(semantic_models, list) else []:
+        if not isinstance(model, dict):
+            continue
+        relation = model.get("node_relation") or {}
+        alias = relation.get("alias") if isinstance(relation, dict) else None
+        if not isinstance(alias, str):
+            continue
+        for measure in model.get("measures", []) or []:
+            if isinstance(measure, dict) and isinstance(measure.get("name"), str):
+                measure_to_model[measure["name"]] = alias
+
+    out: dict[str, list[str]] = {}
+    for metric in metrics if isinstance(metrics, list) else []:
+        if not isinstance(metric, dict) or not isinstance(metric.get("name"), str):
+            continue
+        params = metric.get("type_params") or {}
+        measures: set[str] = set()
+        for item in params.get("input_measures") or []:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                measures.add(item["name"])
+        measure = params.get("measure")
+        if isinstance(measure, dict) and isinstance(measure.get("name"), str):
+            measures.add(measure["name"])
+        out[metric["name"]] = sorted(
+            {measure_to_model[m] for m in measures if m in measure_to_model}
+        )
+    return out
+
+
 # --- Compile + run --------------------------------------------------------
 
 

@@ -61,6 +61,8 @@ uv run humbert query -m total_production \
 
 `--by` groups, `--where` filters (a MetricFlow expression, passed through), `--order` sorts (prefix `-` for descending), `--grain` sets the time grain, and `--sql` prints the SQL MetricFlow generated. An unknown metric or dimension is reported by name rather than run — nothing reaches the warehouse until it resolves.
 
+**Public-only by default.** v0 runs on public data, and Humbert enforces it: a metric is exposed only if every model it reads is classified `open` in dbt `meta:` — anything unclassified is withheld (default-deny). `connect`/`status` report how many were withheld and `vocab` names them. The bundled cheese project classifies its marts `open`, so it passes its own guard. Maintainers: see [`docs/technical/001-information-manager-instructions.md`](docs/technical/001-information-manager-instructions.md).
+
 ## Layout
 
 ```

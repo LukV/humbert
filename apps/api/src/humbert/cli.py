@@ -79,6 +79,7 @@ def connect(
             typer.echo(f"Building {project.name} …")
             engine.build(project)
         health = engine.introspect(project, exposed)
+        _exposed_metrics, withheld = semantic.classify_metrics(project)
     except engine.EngineError as err:
         _fail(str(err))
 
@@ -91,6 +92,7 @@ def connect(
         model_count=health.model_count,
         metric_count=health.metric_count,
         unavailable_count=health.unavailable_count,
+        withheld_count=len(withheld),
     )
     config.active_connection = name
     project_dir(name).mkdir(parents=True, exist_ok=True)
@@ -99,11 +101,19 @@ def connect(
     typer.echo(f"Connected '{name}' → {project}")
     typer.echo(
         f"  {health.model_count} models · {health.metric_count} metrics "
-        f"· {health.unavailable_count} unavailable  (exposed: {', '.join(exposed)})"
+        f"· {health.unavailable_count} unavailable · {len(withheld)} withheld "
+        f"  (exposed: {', '.join(exposed)})"
     )
     for issue in health.issues:
         marker = "!" if issue.severity == "fatal" else "·"
         typer.echo(f"  {marker} {issue.severity}: {issue.message.splitlines()[0]}")
+    for item in withheld:
+        typer.echo(f"  · withheld {item.metric}: {item.reason}")
+    if withheld and not _exposed_metrics:
+        typer.echo(
+            "  All metrics withheld — classify the governed layer with "
+            "`meta: {classification: open}` in dbt and reconnect."
+        )
 
 
 @app.command()
@@ -147,6 +157,8 @@ def _health_summary(connection: Connection) -> str:
     parts.append(f"{connection.metric_count} metrics")
     if connection.unavailable_count is not None:
         parts.append(f"{connection.unavailable_count} unavailable")
+    if connection.withheld_count is not None:
+        parts.append(f"{connection.withheld_count} withheld")
     return f"   ({' · '.join(parts)})"
 
 
@@ -155,18 +167,22 @@ def vocab() -> None:
     """List the metrics and dimensions the active source exposes."""
     project = _active_project()
     try:
-        vocabulary = semantic.discover_vocabulary(project)
+        pack = semantic.load_pack(project)
     except engine.EngineError as err:
         _fail(str(err))
 
-    if not vocabulary.metrics:
-        typer.echo("No metrics found in the active source.")
-        return
-    for metric in vocabulary.metrics:
+    if not pack.vocabulary.metrics:
+        typer.echo("No metrics exposed by the active source.")
+    for metric in pack.vocabulary.metrics:
         typer.echo(metric.name)
         for dim in metric.dimensions:
             grain = f"   grains: {dim.grain}" if dim.kind == "time" and dim.grain else ""
             typer.echo(f"  {dim.name:<32} {dim.kind}{grain}")
+    if pack.withheld:
+        typer.echo("")
+        typer.echo(f"Withheld by the public-only guard ({len(pack.withheld)}):")
+        for item in pack.withheld:
+            typer.echo(f"  · {item.metric}: {item.reason}")
 
 
 @app.command()
