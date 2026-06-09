@@ -2,8 +2,8 @@
 project: humbert
 type: planning-block
 block: setup
-status: active
-updated: 2026-06-07
+status: shipped
+updated: 2026-06-08
 ---
 # Block 1 — Setup, Bootstrap & Semantic Layer
 

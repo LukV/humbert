@@ -12,7 +12,7 @@ from typing import NoReturn
 
 import typer
 
-from humbert import __version__, engine, semantic
+from humbert import __version__, engine, orchestrator, semantic
 from humbert.config import (
     Config,
     Connection,
@@ -190,7 +190,9 @@ def query(
     metric: list[str] = typer.Option(..., "--metric", "-m", help="Metric to query (repeatable)."),
     by: list[str] = typer.Option([], "--by", help="Dimension to group by (repeatable)."),
     where: list[str] = typer.Option(
-        [], "--where", help="MetricFlow filter expression (repeatable, passed through)."
+        [],
+        "--where",
+        help="MetricFlow filter in template form: \"{{ Dimension('x__y') }} = 'z'\" (repeatable).",
     ),
     order: list[str] = typer.Option(
         [], "--order", help="Order by a metric/dimension; prefix '-' for descending (repeatable)."
@@ -232,6 +234,60 @@ def query(
     if sql:
         typer.echo("")
         typer.echo(result.compiled_sql)
+
+
+@app.command()
+def ask(
+    question: str = typer.Argument(..., help="A plain-language question about the source."),
+    sql: bool = typer.Option(True, "--sql/--no-sql", help="Show the SQL behind the answer."),
+) -> None:
+    """Ask a question in plain language: plan → run → narrate over the source (Tier 1)."""
+    project = _active_project()
+    config = load_config()
+    try:
+        vocabulary = semantic.discover_vocabulary(project)
+        model = orchestrator.build_model(config.llm)
+    except (engine.EngineError, orchestrator.OrchestratorError) as err:
+        _fail(str(err))
+
+    stages = {
+        "planning": "planning the query …",
+        "replanning": "adjusting the query …",
+        "running": "running the query …",
+        "narrating": "writing the answer …",
+    }
+
+    def show_stage(stage: str) -> None:
+        typer.echo(f"  · {stages.get(stage, stage)}", err=True)
+
+    try:
+        answer = orchestrator.ask(
+            question,
+            project_dir=project,
+            vocabulary=vocabulary,
+            model=model,
+            on_stage=show_stage,
+        )
+    except engine.EngineError as err:
+        _fail(str(err))
+
+    if isinstance(answer, orchestrator.NoTier1Answer):
+        typer.echo("Couldn't map that to a defined metric.")
+        if answer.reading:
+            typer.echo(f"  reading: {answer.reading}")
+        for problem in answer.problems:
+            typer.echo(f"  · {problem}")
+        raise typer.Exit(1)
+
+    typer.echo(answer.narrative)
+    typer.echo("")
+    typer.echo(f"reading: {answer.reading}")
+    typer.echo(f"tier {answer.tier} · certainty {answer.certainty}")
+    typer.echo("")
+    _print_table(answer.columns, answer.rows)
+    if sql:
+        typer.echo("")
+        typer.echo(answer.compiled_sql)
 
 
 def _active_project() -> Path:

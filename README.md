@@ -43,9 +43,10 @@ uv run humbert start                           # serve on http://localhost:8000
 | `humbert status` | Show the active connection, exposed schema(s), health, skin, locale. |
 | `humbert vocab` | List the metrics and dimensions the active source exposes. |
 | `humbert query -m <metric> [--by] [--where] [--order] [--limit] [--grain] [--sql]` | Run a selection against the source; report unknown names. |
+| `humbert ask "<question>" [--no-sql]` | Ask in plain language: plan → run → narrate (Tier 1). Needs an LLM key. |
 | `humbert start [--port] [--no-browser]` | Boot the runtime and serve the UI. |
 
-`connect` / `vocab` / `query` need `--extra dbt`; `init` / `status` / `start` run on the core install.
+`connect` / `vocab` / `query` / `ask` need `--extra dbt`; `init` / `status` / `start` run on the core install. `ask` also needs an LLM API key (by default `ANTHROPIC_API_KEY`).
 
 ### Asking the source
 
@@ -59,7 +60,18 @@ uv run humbert query -m total_production \
   --by cheese_record__country --order -total_production --limit 6 --sql
 ```
 
-`--by` groups, `--where` filters (a MetricFlow expression, passed through), `--order` sorts (prefix `-` for descending), `--grain` sets the time grain, and `--sql` prints the SQL MetricFlow generated. An unknown metric or dimension is reported by name rather than run — nothing reaches the warehouse until it resolves.
+`--by` groups, `--where` filters (a MetricFlow expression in template form, e.g. `"{{ Dimension('cheese_record__country') }} = 'Germany'"`), `--order` sorts (prefix `-` for descending), `--grain` sets the time grain, and `--sql` prints the SQL MetricFlow generated. An unknown metric or dimension is reported by name rather than run — nothing reaches the warehouse until it resolves.
+
+### Asking in plain language
+
+`query` makes you name the metric. `ask` lets you put the question in your own words and does that mapping for you — the two-call loop from [`009-orchestration`](docs/product-design/009-orchestration.md): **plan → run → narrate**. The model proposes a selection; Humbert validates and runs it; the model writes the answer over the rows that came back — never a number it hasn't seen the engine produce.
+
+```bash
+export ANTHROPIC_API_KEY=…           # ask needs an LLM; provider/model are config
+uv run humbert ask "which countries produce the most cheese?"
+```
+
+It prints the narrative, the *reading* (how it mapped your words to metric and dimension names, so a loose match is visible and correctable), the tier and certainty, the rows, and the SQL (`--no-sql` to hide it). This is **Tier 1 only**: if no defined metric fits the question, it stops plainly rather than guessing — the governed-SQL fallback and honest refusal come in later blocks.
 
 **Public-only by default.** v0 runs on public data, and Humbert enforces it: a metric is exposed only if every model it reads is classified `open` in dbt `meta:` — anything unclassified is withheld (default-deny). `connect`/`status` report how many were withheld and `vocab` names them. The bundled cheese project classifies its marts `open`, so it passes its own guard. Maintainers: see [`docs/technical/001-information-manager-instructions.md`](docs/technical/001-information-manager-instructions.md).
 

@@ -14,8 +14,8 @@ The goal across these blocks: **a working v0 of Humbert** — a notebook that co
 
 | # | Block | Status | Where the pitches live |
 |---|-------|--------|------------------------|
-| 1 | Setup, Bootstrap & Semantic Layer | not started | [[blocks/01-setup-and-bootstrap]] |
-| 2 | Notebook + Orchestration | not started | [[blocks/02-notebook-and-orchestration]] |
+| 1 | Setup, Bootstrap & Semantic Layer | shipped | [[blocks/01-setup-and-bootstrap]] |
+| 2 | Notebook + Orchestration | in progress | [[blocks/02-notebook-and-orchestration]] |
 | 3 | Honest Uncertainty | not started | [[blocks/03-honest-uncertainty]] |
 | 4 | Telemetry | not started | [[blocks/04-telemetry]] |
 | 5 | Evaluation | not started | [[blocks/05-evaluation]] |

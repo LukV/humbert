@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from humbert import __version__, config, semantic
+from humbert import __version__, config, orchestrator, semantic
 from humbert.cli import app
 
 runner = CliRunner()
@@ -146,3 +146,77 @@ def test_query_runs_and_prints_rows(home: Path, monkeypatch: pytest.MonkeyPatch)
     assert result.exit_code == 0
     assert "Germany" in result.stdout
     assert "SELECT 1" in result.stdout
+
+
+# --- ask (the two-call loop, model + run stubbed) -------------------------
+
+
+def _stub_ask_deps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wire ask's dependencies so the CLI test never needs a key or a model."""
+    monkeypatch.setattr(semantic, "discover_vocabulary", lambda p: _cheese_vocab())
+    monkeypatch.setattr(orchestrator, "build_model", lambda llm: object())
+
+
+def test_ask_prints_narrative_reading_and_sql(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _activate()
+    _stub_ask_deps(monkeypatch)
+    answer = orchestrator.Answer(
+        question="q",
+        reading="read cheese as total_production, by country",
+        selection=semantic.Selection(metrics=["total_production"]),
+        columns=["cheese_record__country", "total_production"],
+        rows=[["Germany", "100"]],
+        compiled_sql="SELECT 1",
+        narrative="Germany produces the most cheese.",
+        certainty="high",
+    )
+    monkeypatch.setattr(orchestrator, "ask", lambda *a, **k: answer)
+
+    result = runner.invoke(app, ["ask", "which countries produce the most cheese?"])
+    assert result.exit_code == 0
+    assert "Germany produces the most cheese." in result.stdout
+    assert "reading: read cheese as total_production" in result.stdout
+    assert "tier 1 · certainty high" in result.stdout
+    assert "SELECT 1" in result.stdout  # SQL shown by default
+
+
+def test_ask_no_sql_hides_query(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _activate()
+    _stub_ask_deps(monkeypatch)
+    answer = orchestrator.Answer(
+        question="q",
+        reading="r",
+        selection=semantic.Selection(metrics=["total_production"]),
+        columns=["c"],
+        rows=[["x"]],
+        compiled_sql="SELECT secret",
+        narrative="n",
+    )
+    monkeypatch.setattr(orchestrator, "ask", lambda *a, **k: answer)
+
+    result = runner.invoke(app, ["ask", "q", "--no-sql"])
+    assert result.exit_code == 0
+    assert "SELECT secret" not in result.stdout
+
+
+def test_ask_no_tier1_stops_plainly(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _activate()
+    _stub_ask_deps(monkeypatch)
+    monkeypatch.setattr(
+        orchestrator,
+        "ask",
+        lambda *a, **k: orchestrator.NoTier1Answer(
+            question="q", reading="read visitors", problems=['unknown metric "visitors"']
+        ),
+    )
+    result = runner.invoke(app, ["ask", "how many visitors?"])
+    assert result.exit_code == 1
+    assert "Couldn't map that to a defined metric" in result.stdout
+    assert "visitors" in result.stdout
+
+
+def test_ask_without_connection(home: Path) -> None:
+    runner.invoke(app, ["init"])
+    result = runner.invoke(app, ["ask", "anything"])
+    assert result.exit_code == 1
+    assert "No active connection" in result.stderr

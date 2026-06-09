@@ -64,3 +64,29 @@ def test_unresolved_selection_names_the_gap() -> None:
     resolved = semantic.resolve(semantic.Selection(metrics=["visitors"]), vocab)
     assert isinstance(resolved, semantic.Unresolved)
     assert any("visitors" in p for p in resolved.problems)
+
+
+def test_templated_where_filter_runs() -> None:
+    """A `where` filter must use MetricFlow's template syntax, not raw SQL columns.
+
+    Regression for the trend-with-filter case ("Germany since 2015"): a raw
+    `cheese_record__country = 'Germany'` fails to bind when country isn't grouped;
+    the `{{ Dimension(...) }}` / `{{ TimeDimension(...) }}` form is what works.
+    """
+    vocab = semantic.discover_vocabulary(CHEESE)
+    selection = semantic.Selection(
+        metrics=["total_production"],
+        group_by=["metric_time"],
+        where=[
+            "{{ Dimension('cheese_record__country') }} = 'Germany' "
+            "AND {{ TimeDimension('metric_time', 'year') }} >= '2015-01-01'"
+        ],
+        order_by=["metric_time"],
+        time_grain="year",
+    )
+    resolved = semantic.resolve(selection, vocab)
+    assert isinstance(resolved, semantic.ResolvedSelection)
+
+    result = semantic.run(resolved, vocab, CHEESE)
+    assert result.columns == ["metric_time__year", "total_production"]
+    assert len(result.rows) == 9  # 2015 through 2023

@@ -3,7 +3,7 @@ project: humbert
 type: planning-block
 block: notebook
 status: active
-updated: 2026-06-07
+updated: 2026-06-08
 ---
 # Block 2 — Notebook + Orchestration
 
@@ -16,15 +16,17 @@ Design: [[../../product-design/002-product-forms]], [[../../product-design/009-o
 ## Open design items
 
 - **Certainty score** — its computation is shared with block 3 (it shapes the answer in both). Decide the shape here, since Tier 1/2 already need "how sure".
-- **Agent framework** carried from block 1 — this is the block that exercises it.
+- ~~**Agent framework** carried from block 1 — this is the block that exercises it.~~ Settled: **PydanticAI** ([[../../architecture/001-stack-decisions]]), with the two-call-orchestration pitch.
 
 ## Pitches
 
-### Two-call orchestration — Tier 1 — *chunky*
+### Two-call orchestration — Tier 1 — *chunky* — **shipped 2026-06-08**
 
 The plan → run → narrate spine, Tier 1 path. The model proposes a MetricFlow selection; the module compiles and runs it (block 1); the model narrates over the returned rows, never inventing numbers. Surfaces the synonym read ("read *attendances* as **visits**") as a correctable line, not a hidden guess.
 
 *Cut line:* a defined-metric question returns a correct narrated answer over real rows, with the selection shown.
+
+Shipped as [[../pitches/shipped/two-call-orchestration]] — PydanticAI as the agent framework, `humbert ask` CLI, with stage indicators for progress. Left a follow-up for block 3: shaping raw `mf` run-errors into typed human messages.
 
 ### Tier 2 — governed fallback — *chunky*
 

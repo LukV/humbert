@@ -127,9 +127,12 @@ humbert query -m total_production \
 nothing reaches the warehouse until it resolves. Use it to confirm a metric
 returns the numbers you expect. Dimension names follow MetricFlow's convention
 (`<entity>__<dimension>`, e.g. `cheese_record__country`); `humbert vocab` shows
-the exact names. `--where` takes a MetricFlow filter expression (passed through
-as-is), `--grain` sets the time grain, and `--sql` prints the SQL MetricFlow
-generated — handy for checking what actually ran.
+the exact names. `--where` takes a MetricFlow filter in its **template form** —
+`"{{ Dimension('cheese_record__country') }} = 'Germany'"` for a categorical
+dimension, `"{{ TimeDimension('metric_time', 'year') }} >= '2015-01-01'"` for a
+time one (a raw column name fails unless it's also grouped). `--grain` sets the
+time grain, and `--sql` prints the SQL MetricFlow generated — handy for checking
+what actually ran.
 
 ## Maintaining a source
 

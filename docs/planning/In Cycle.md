@@ -2,7 +2,7 @@
 project: humbert
 type: planning-index
 status: active
-updated: 2026-06-07
+updated: 2026-06-08
 current_pitch: null
 ---
 # In Cycle
@@ -17,7 +17,7 @@ See [[#On deck]] for the next pickup.
 
 ## On deck
 
-Block 2 opens next: **two-call orchestration (Tier 1)** — the plan → run → narrate spine, the first time the LLM calls the semantic-layer module. See [[blocks/02-notebook-and-orchestration]].
+Block 2 continues with **Tier 2 — governed fallback**: when no metric fits, the model writes guarded SQL over the marts, flagged as computed-not-defined. See [[blocks/02-notebook-and-orchestration]].
 
 ## How a pitch enters and leaves this page
 

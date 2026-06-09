@@ -18,6 +18,10 @@ Design: [[../../product-design/006-honest-uncertainty]], [[../../product-design/
 - **Certainty thresholds** — where high/medium/low/floor sit. Tune against telemetry (block 4) once there's real data; start conservative to avoid over-refusal.
 - **The clarifying-question path** — at "low", ask one question instead of answering. Confirm the interaction.
 
+## Follow-ups carried in
+
+- **Engine-error shaping.** Surfaced by the two-call-orchestration pitch ([[../pitches/shipped/two-call-orchestration]]): when a query reaches the engine and `mf` fails (a malformed filter, a binder error), the raw `mf` traceback — spinner chars, stack trace, "report a bug" footer — is dumped at the user verbatim. That's the wrong register. A failed *run* (as opposed to a failed *resolve*, which is already clean) should become a short, typed, human message in the same family as a refusal — this is where error-shaping belongs, alongside the refusal state's copy. Not a guess buried in narrative, not a stack trace either.
+
 ## Pitches
 
 ### Refusal as a cell state — *medium*

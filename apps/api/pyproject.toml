@@ -13,6 +13,10 @@ dependencies = [
     "pydantic>=2.10",
     "fastapi>=0.115",
     "uvicorn>=0.34",
+    # The agent framework for the two-call orchestration loop. Slim + the
+    # anthropic provider keeps the core light; other providers are extras of
+    # pydantic-ai-slim. Confined behind the `orchestrator` seam.
+    "pydantic-ai-slim[anthropic]>=0.0.40",
 ]
 
 [project.optional-dependencies]
