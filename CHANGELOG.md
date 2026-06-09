@@ -1,3 +1,9 @@
+## v0.15.0 (2026-06-09)
+
+### Feat
+
+- **orchestrator**: two-call orchestration (Tier 1) — humbert ask, PydanticAI
+
 ## v0.14.0 (2026-06-08)
 
 ### Feat
