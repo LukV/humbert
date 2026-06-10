@@ -1,3 +1,9 @@
+## v0.16.0 (2026-06-10)
+
+### Feat
+
+- **web**: add a frontend that organizes cells into a notebook
+
 ## v0.15.0 (2026-06-09)
 
 ### Feat
