@@ -21,6 +21,10 @@ semantic_models:
       - name: production_tonnes
         description: Cheese produced, in tonnes.
         agg: sum
+      - name: distinct_products
+        description: Number of distinct cheese products made.
+        agg: count_distinct
+        expr: product
 
 metrics:
   - name: total_production
@@ -28,3 +32,8 @@ metrics:
     type: simple
     type_params:
       measure: production_tonnes
+  - name: product_variety
+    label: Distinct cheese products
+    type: simple
+    type_params:
+      measure: distinct_products

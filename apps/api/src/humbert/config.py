@@ -48,6 +48,16 @@ class Settings(BaseModel):
     app_name: str = "Humbert"
     locale: Locale = "en"
     telemetry_enabled: bool = True
+    # The empty-state chips — one per chart shape for the bundled cheese source.
+    # Static for v0; vocabulary-derived suggestions are a later refinement.
+    suggestions: list[str] = Field(
+        default_factory=lambda: [
+            "Which countries produce the most cheese?",
+            "How has cheese production evolved over the years?",
+            "How much cheese did Germany produce in 2020?",
+            "Do countries that make more cheese also make more kinds of it?",
+        ]
+    )
 
 
 class LLM(BaseModel):

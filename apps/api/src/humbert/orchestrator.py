@@ -23,6 +23,7 @@ are later pitches; here a question with no Tier-1 answer stops plainly.
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,6 +65,7 @@ class Answer:
     narrative: str = ""
     tier: int = 1
     certainty: Certainty = "high"
+    duration_seconds: float = 0.0  # wall-clock of the run step, shown on the cell
 
 
 @dataclass
@@ -89,6 +91,15 @@ Rules:
 - Pick the metric whose meaning best fits the question, grouping/ordering/limiting \
 as the question implies. Loose wording is fine — map "cheese" to the metric that \
 measures it.
+- "per X", "by X", "for each X", "across X", "broken down by X" all mean GROUP BY \
+the dimension X — not select a second metric. ("production per variety" = \
+total production grouped by the variety/product dimension.)
+- When a word matches both a metric and a dimension (e.g. "variety" could be the \
+`product_variety` metric or the `product` dimension), prefer GROUPING BY the \
+dimension, unless the question explicitly asks how many/how varied (a count).
+- Choose TWO metrics ONLY when the question relates two distinct measures — a \
+correlation or trade-off ("do places that make more also make more kinds?"). A \
+plain "how much … per/by X" is ONE metric grouped by X, never two.
 - Filters in `where` MUST use MetricFlow's template syntax, never raw SQL columns \
 (a raw column name fails unless it is also grouped). Wrap each dimension:
   - categorical: `{{ Dimension('cheese_record__country') }} = 'Germany'`
@@ -133,6 +144,8 @@ def ask(
     vocabulary: semantic.Vocabulary,
     model: Model,
     on_stage: Callable[[str], None] | None = None,
+    prior_question: str | None = None,
+    prior_selection: semantic.Selection | None = None,
 ) -> Answer | NoTier1Answer:
     """Run plan → run → narrate for one question. Tier 1 only.
 
@@ -144,11 +157,19 @@ def ask(
     ``running`` / ``narrating``) as the loop moves through its phases, so a caller
     can show progress over the slow model calls. The orchestrator emits keys, not
     copy — the CLI decides how to render them.
+
+    ``prior_question`` / ``prior_selection`` carry the cell a follow-up refines:
+    the planner is shown the previous structured query and told to start from it
+    *only* when this question clearly refers back ("add Italy", "just France"),
+    and to ignore it otherwise. The output is still a validated Tier-1 selection,
+    so a misread is a quality miss the ``reading`` surfaces — never an unsafe one.
     """
     notify = on_stage or (lambda _stage: None)
 
     notify("planning")
-    plan, resolved, first_try = _plan_and_resolve(question, vocabulary, model, notify)
+    plan, resolved, first_try = _plan_and_resolve(
+        question, vocabulary, model, notify, prior_question, prior_selection
+    )
 
     if isinstance(resolved, semantic.Unresolved):
         return NoTier1Answer(question=question, reading=plan.reading, problems=resolved.problems)
@@ -157,7 +178,9 @@ def ask(
     certainty: Certainty = "high" if first_try else "medium"
 
     notify("running")
+    started = time.perf_counter()
     result = semantic.run(resolved, vocabulary, project_dir)
+    duration = time.perf_counter() - started
     notify("narrating")
     narrative = _narrate(question, plan, result, model)
 
@@ -171,6 +194,7 @@ def ask(
         narrative=narrative,
         tier=1,
         certainty=certainty,
+        duration_seconds=duration,
     )
 
 
@@ -179,6 +203,8 @@ def _plan_and_resolve(
     vocabulary: semantic.Vocabulary,
     model: Model,
     notify: Callable[[str], None],
+    prior_question: str | None = None,
+    prior_selection: semantic.Selection | None = None,
 ) -> tuple[Plan, semantic.ResolvedSelection | semantic.Unresolved, bool]:
     """Plan, validate, and retry once with the named gaps fed back.
 
@@ -187,8 +213,9 @@ def _plan_and_resolve(
     """
     agent = Agent(model, output_type=Plan, instructions=_PLAN_INSTRUCTIONS)
     vocab_text = _vocabulary_prompt(vocabulary)
+    prior_text = _prior_prompt(prior_question, prior_selection)
 
-    run = agent.run_sync(f"Question: {question}\n\nAvailable vocabulary:\n{vocab_text}")
+    run = agent.run_sync(f"{prior_text}Question: {question}\n\nAvailable vocabulary:\n{vocab_text}")
     plan: Plan = run.output
     resolved = semantic.resolve(plan.selection, vocabulary)
     if isinstance(resolved, semantic.ResolvedSelection):
@@ -218,6 +245,28 @@ def _narrate(question: str, plan: Plan, result: semantic.Result, model: Model) -
         "Write the answer."
     )
     return out.output.strip()
+
+
+def _prior_prompt(prior_question: str | None, prior_selection: semantic.Selection | None) -> str:
+    """The refine-or-start-fresh preamble, or empty when there's no prior cell.
+
+    Shown to the planner before the question so a follow-up like "add Italy" or
+    "just France" can carry the previous selection forward. The rule biases to
+    *fresh*: the prior is used only when the question plainly refers back to it.
+    """
+    if prior_question is None or prior_selection is None:
+        return ""
+    return (
+        "There is a previous answer in this conversation.\n"
+        f"Previous question: {prior_question}\n"
+        f"Previous selection (the structured query that answered it): "
+        f"{prior_selection.model_dump_json()}\n"
+        "If THIS question refines the previous one — it refers back, e.g. "
+        '"add Italy", "and Belgium too", "just France", "by year instead", '
+        '"drop the filter" — start from the previous selection and change ONLY '
+        "what this question asks, keeping the rest. If the question stands on its "
+        "own, ignore the previous selection entirely and plan it fresh.\n\n"
+    )
 
 
 def _vocabulary_prompt(vocabulary: semantic.Vocabulary) -> str:

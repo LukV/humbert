@@ -3,7 +3,7 @@ project: humbert
 type: planning-index
 status: active
 updated: 2026-06-08
-current_pitch: null
+current_pitch: beautiful-defaults
 ---
 # In Cycle
 
@@ -17,7 +17,7 @@ See [[#On deck]] for the next pickup.
 
 ## On deck
 
-Block 2 continues with **Tier 2 — governed fallback**: when no metric fits, the model writes guarded SQL over the marts, flagged as computed-not-defined. See [[blocks/02-notebook-and-orchestration]].
+After Beautiful defaults, block 2 continues with **Refinement** and **Validation**; **Tier 2 — governed fallback** stays parked. See [[blocks/02-notebook-and-orchestration]].
 
 ## How a pitch enters and leaves this page
 

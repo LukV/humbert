@@ -28,7 +28,9 @@ The plan → run → narrate spine, Tier 1 path. The model proposes a MetricFlow
 
 Shipped as [[../pitches/shipped/two-call-orchestration]] — PydanticAI as the agent framework, `humbert ask` CLI, with stage indicators for progress. Left a follow-up for block 3: shaping raw `mf` run-errors into typed human messages.
 
-### Tier 2 — governed fallback — *chunky*
+### Tier 2 — governed fallback — *chunky* — **parked 2026-06-09**
+
+> Parked behind **The cell** — Tier 1 proved responsive, and the cell is the backbone the rest of the block hangs off. The cell's data model already holds `tier`/`certainty`, so a Tier-2 cell is a value it can carry, not a schema change. Revisit once the cell exists; its **Tier-2 guard** open item in the ADR is parked with it.
 
 When no metric fits, the model writes SQL over governed marts, flagged as computed-not-defined and less certain. The SQL is shown and editable. Includes the **Tier-2 guard** from [[../../architecture/001-stack-decisions]]: read-only, single statement, auto-`LIMIT`, `statement_timeout`, governed-marts only.
 
@@ -36,17 +38,23 @@ When no metric fits, the model writes SQL over governed marts, flagged as comput
 
 *Out of scope:* promoting a fallback into a defined metric — that's the IM's decision, never the model's ([[../../product-design/004-semantic-layer]]).
 
-### The cell — *chunky*
+### The cell — *chunky* — **shipped 2026-06-09**
 
-The reproducible unit ([[../../product-design/002-product-forms]]): question + editable title, context (parent, refinement-of), SQL (text, dialect, edited?), result metadata, the Vega-Lite chart, the narrative (serif, leading), and metadata (model, tier, certainty, agent steps). The data model and its render.
+The reproducible unit ([[../../product-design/002-product-forms]]): question + editable title, context (parent, refinement-of), SQL (text, dialect, edited?), result metadata, the Vega-Lite chart spec, the narrative, and metadata (model, tier, certainty). The data model, its persistence, and the deterministic chart-*spec* it carries — built and exercised headlessly (CLI); the browser render is a later pitch.
 
-*Cut line:* a cell that persists and re-renders faithfully from stored state — chart, narrative, SQL, tier.
+Shipped as [[../pitches/shipped/the-cell]] — `Cell` + `notebook.json` per connection, `humbert ask` persists, `cells` / `show` read back; deterministic chart-type chooser (line/bar/number/none). Surfaced the rows-in-JSON bloat for real (a 1600-row answer → a very long notebook); its fix lands with **Validation** (snapshot/freeze).
 
-### Beautiful defaults — *medium*
+> Scope re-carve (2026-06-09): **chart-type selection** (the right Vega-Lite spec for the answer shape) lives *here*, not in Beautiful defaults — a correct spec is part of what a cell carries. Beautiful defaults shrinks to *theming* that spec.
 
-Chart-type selection by answer shape (share → pie, comparison → bar, trend → line, count → one number; some answers need no chart) and the FT / Observable-style theme as the default. Reads the per-project Tailwind theme. This is pillar 5, and it ships *with* the loop, not after.
+*Cut line:* a cell that persists and re-renders faithfully from stored state — narrative, reading, SQL, rows, tier, certainty, and a correct (plain) chart spec.
 
-*Cut line:* the four core chart types render beautifully on the default theme; "no chart" is a valid outcome.
+### Beautiful defaults — *chunky* — **in cycle (2026-06-09)**
+
+Grew from *medium* to *chunky*: this is where the **frontend is introduced**. It renders the two states from the assets — the empty notebook (ask box + suggested questions) and the draft cell — beautifully, with asking done in the browser (synchronous `POST /api/ask`). Built on the seeded skin tokens, skinnable from day one. The chart engine gains a fifth spec — **scatter** for two-measure answers — and otherwise just gets made lovely (Tufte-clean); chart-*type* selection already lives in [[../pitches/the-cell]]. Scatter needs a second cheese metric (`product_variety`), added here. Bars are capped at top-N so broad answers still render composed. Cells can be **deleted** (FE + `DELETE /api/notebook/cells/{id}`); the footer shows `tier · certainty · model`. Pie/camembert and small multiples stay deferred — render a bar. This is pillar 5. Shaped as [[../pitches/beautiful-defaults]].
+
+*Cut line:* from an empty notebook, ask and get a beautifully-rendered, persisted draft cell; asking again appends a cell; deleting one removes it; it holds on the `proef` skin as well as the default.
+
+*Later (parked here):* **vocabulary-derived suggestions** — the empty-state starter questions are hard-coded for cheese in this pitch; deriving them from the connected source's own metrics and dimensions (so any pack gets sensible prompts) is a refinement for once more than one source exists.
 
 ### Refinement — *medium*
 
@@ -59,6 +67,8 @@ Editing the question makes the model re-plan into a new query and re-run; editin
 Promote a draft cell to validated: freeze the query (no re-planning ever again), turn literals into parameters (re-run with a new year/gemeente = same query, new binds), and record who signed it, when, on which snapshot. The determinism guarantee ([[../../product-design/002-product-forms]]).
 
 *Cut line:* a validated cell re-runs its frozen, parameterised query and records signer + snapshot.
+
+*Carried in:* the rows-in-JSON bloat from [[../pitches/shipped/the-cell]] — a broad answer (1600 rows) makes `notebook.json` very long. The freeze/snapshot story here is where a cell stops storing raw rows inline and references a snapshot instead.
 
 ### Localization — en / nl — *medium*
 

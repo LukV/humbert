@@ -195,6 +195,44 @@ def test_empty_result_still_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert answer.rows == []
 
 
+def test_prior_prompt_is_empty_without_a_full_parent() -> None:
+    sel = semantic.Selection(metrics=["total_production"])
+    assert orchestrator._prior_prompt(None, None) == ""
+    assert orchestrator._prior_prompt("q", None) == ""
+    assert orchestrator._prior_prompt(None, sel) == ""
+
+
+def test_prior_selection_reaches_the_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A follow-up hands the planner the previous query plus the refine-or-fresh rule."""
+    _stub_run(monkeypatch, _RESULT)
+    plan_prompts: list[str] = []
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if info.output_tools:
+            plan_prompts.append(str(getattr(messages[-1].parts[-1], "content", "")))
+            return ModelResponse(
+                parts=[ToolCallPart(tool_name=info.output_tools[0].name, args=_GOOD_PLAN)]
+            )
+        return ModelResponse(parts=[TextPart("...")])
+
+    prior = semantic.Selection(
+        metrics=["total_production"],
+        group_by=["metric_time", "cheese_record__country"],
+    )
+    orchestrator.ask(
+        "add Italy",
+        project_dir=Path("."),
+        vocabulary=_vocab(),
+        model=FunctionModel(fn),
+        prior_question="compare cheese production between France and Germany over time",
+        prior_selection=prior,
+    )
+    assert plan_prompts
+    assert "compare cheese production between France and Germany" in plan_prompts[0]
+    assert "total_production" in plan_prompts[0]
+    assert "refines the previous" in plan_prompts[0]
+
+
 # --- build_model: provider/key plumbing ------------------------------------
 
 

@@ -44,9 +44,11 @@ uv run humbert start                           # serve on http://localhost:8000
 | `humbert vocab` | List the metrics and dimensions the active source exposes. |
 | `humbert query -m <metric> [--by] [--where] [--order] [--limit] [--grain] [--sql]` | Run a selection against the source; report unknown names. |
 | `humbert ask "<question>" [--no-sql]` | Ask in plain language: plan → run → narrate (Tier 1). Needs an LLM key. |
+| `humbert cells` | List the cells saved in the active notebook. |
+| `humbert show <id>` | Show one stored cell in full — narrative, table, SQL, chart spec. |
 | `humbert start [--port] [--no-browser]` | Boot the runtime and serve the UI. |
 
-`connect` / `vocab` / `query` / `ask` need `--extra dbt`; `init` / `status` / `start` run on the core install. `ask` also needs an LLM API key (by default `ANTHROPIC_API_KEY`).
+`connect` / `vocab` / `query` / `ask` need `--extra dbt`; `init` / `status` / `start` / `cells` / `show` run on the core install. `ask` also needs an LLM API key (by default `ANTHROPIC_API_KEY`).
 
 ### Asking the source
 
@@ -74,6 +76,84 @@ uv run humbert ask "which countries produce the most cheese?"
 It prints the narrative, the *reading* (how it mapped your words to metric and dimension names, so a loose match is visible and correctable), the tier and certainty, the rows, and the SQL (`--no-sql` to hide it). This is **Tier 1 only**: if no defined metric fits the question, it stops plainly rather than guessing — the governed-SQL fallback and honest refusal come in later blocks.
 
 **Public-only by default.** v0 runs on public data, and Humbert enforces it: a metric is exposed only if every model it reads is classified `open` in dbt `meta:` — anything unclassified is withheld (default-deny). `connect`/`status` report how many were withheld and `vocab` names them. The bundled cheese project classifies its marts `open`, so it passes its own guard. Maintainers: see [`docs/technical/001-information-manager-instructions.md`](docs/technical/001-information-manager-instructions.md).
+
+### The notebook
+
+Every `ask` saves a **cell** — the reproducible unit ([`002-product-forms`](docs/product-design/002-product-forms.md)). A cell persists everything behind one answer: the question, the *reading*, the selection and compiled SQL, the result rows, a chart spec, the narrative, and the metadata (model, tier, certainty). Cells accumulate into a notebook, stored as plain JSON at `~/.humbert/projects/<project>/notebook.json`.
+
+```bash
+uv run humbert ask "which countries produce the most cheese?"   # saves a cell
+uv run humbert cells                                             # list them
+uv run humbert show 1                                            # one cell in full
+```
+
+`show` prints the cell's chart as a [Vega-Lite](https://vega.github.io/vega-lite/) spec — the right *type* for the answer's shape: a trend is a line, a breakdown a (sorted, top-N) bar, two measures a scatter, a single figure a number, and some answers get no chart at all.
+
+> The notebook stores the result rows it returned, so a broad question (thousands of rows) makes for a large `notebook.json`. That's expected in v0; the snapshot/freeze story comes with validation.
+
+### The notebook in the browser
+
+`humbert start` serves the notebook as a web app: an empty page invites a question (with a starter question per chart shape for the bundled source), and each answer streams in as a cell — the narrative in serif with its figures emphasised, a Tufte-clean chart, and the SQL, chart spec, and reasoning a click away in a code drawer. Asking again appends a cell; a follow-up like *"add Italy"* refines the previous one rather than starting over; deleting a cell removes it. There's a light/dark toggle, and the chrome is ready for Dutch as well as English.
+
+```bash
+uv run humbert start          # serve http://localhost:8000 and open it
+```
+
+> Because asking now happens in the browser, `humbert start` has the same runtime needs as `humbert ask`: the LLM API key in its environment and the `dbt` extra installed. Reading an existing notebook needs neither.
+
+### Configuration
+
+Settings live in `~/.humbert/config.json`. The two blocks you'll touch:
+
+```jsonc
+{
+  "llm": {
+    "provider": "anthropic",          // v0 ships the Anthropic provider
+    "model": "claude-opus-4-8",       // any model the provider offers
+    "api_key_env": "ANTHROPIC_API_KEY" // which env var holds the key
+  },
+  "settings": {
+    "max_result_rows": 1000,          // row cap on a query
+    "statement_timeout_seconds": 30,
+    "theme": "humbert",               // skin
+    "locale": "en"                    // en / nl
+  }
+}
+```
+
+To ask with a different model, change `llm.model`; to point at another key, change `llm.api_key_env` and export that variable. Provider and model are config, never code — switching is a config edit (and, for a new provider, an install extra) away.
+
+### Tuning the look (skins)
+
+The whole interface is built from a handful of **design tokens** — colours and fonts — so changing the look is changing tokens, not components. Tokens live in [`apps/web/src/styles/theme.css`](apps/web/src/styles/theme.css) as a Tailwind `@theme` block:
+
+```css
+@theme {
+  --color-paper: #fbfaf7;   /* the page background */
+  --color-surface: #ffffff; /* the header bar and cards, raised above paper */
+  --color-ink: #1a1a1a;     /* text */
+  --color-brand: #4a2d4f;   /* aubergine — reserved for validation */
+  --color-caution: #b8860b; /* amber — caution / the accent figure */
+
+  --font-narrative: "Source Serif 4", Georgia, serif; /* the answer prose */
+  --font-ui: "DM Sans", system-ui, sans-serif;        /* labels, metadata */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace; /* SQL */
+}
+```
+
+**Experiment quickly** — edit those values, then rebuild (`cd apps/web && npm run build`) and reload. Change `--color-paper` for the background; change `--font-narrative` / `--font-ui` for the type. If you point a font token at a face that isn't installed, add it first — the three defaults are self-hosted via Fontsource (imported in [`apps/web/src/main.tsx`](apps/web/src/main.tsx)); to add another, `npm install @fontsource/<face>` and import its weights there, or drop in an `@font-face` / web-font `<link>`.
+
+**A reusable skin** — rather than editing the defaults, add a skin file that overrides only what you want, scoped to its name:
+
+```css
+/* apps/web/src/styles/skins/dusk.css */
+:root[data-skin="dusk"] {
+  --color-paper: #f4f1ec;
+  --font-narrative: "Lora", Georgia, serif;
+}
+```
+
+Import it near the top of `theme.css` (`@import "./skins/dusk.css";`), set `"theme": "dusk"` in `settings` of `config.json`, and rebuild. The active skin is injected onto `<html data-skin="…">` server-side, so there's no flash of the default. (`humbert status` shows which skin is active.)
 
 ## Layout
 
@@ -104,8 +184,19 @@ cd ../web && npm run build
 
 CI runs the same, on the **core** install (no dbt) — the dbt path is exercised locally.
 
-### Frontend dev server
+### Frontend dev server (hot reload)
+
+`humbert start` serves the **pre-built** bundle on `:8000`, so editing React there shows nothing until you rebuild. For hot reload, run the **Vite dev server** alongside the backend and open **`:5173`** — it proxies `/api` to the backend on `:8000`.
 
 ```bash
-cd apps/web && npm install && npm run dev   # proxies /api to the backend on :8000
+make dev                       # runs both; open http://localhost:5173
 ```
+
+Or in two terminals:
+
+```bash
+cd apps/api && uv run humbert start --no-browser   # backend + API on :8000
+cd apps/web && npm install && npm run dev          # Vite (HMR) on :5173 — open this
+```
+
+Rule of thumb: **`:5173` while building the UI** (instant reload), **`:8000` to check the real built bundle** (run `npm run build` first, or `make build-web`).

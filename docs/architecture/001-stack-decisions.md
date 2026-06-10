@@ -71,7 +71,7 @@ v0 runs on public data only ([[../product-design/004-semantic-layer]]), and that
 
 ## Open — decide before the block that needs them
 
-- **Tier-2 execution path.** Exactly how model SQL runs through the semantic-layer module against the marts, and the precise guard rules.
+- **Tier-2 execution path** *(parked 2026-06-09, with the Tier-2 pitch)*. Exactly how model SQL runs through the semantic-layer module against the marts, and the precise guard rules. Deferred behind **The cell** — settle when Tier 2 is picked up.
 - **Model client.** Streaming (plan stream, as Lumen did) vs sync for plan / narrate.
 - **Windows persistence path.** Which platform-dirs helper, and the exact directory.
 

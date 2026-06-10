@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from humbert import __version__, config, orchestrator, semantic
+from humbert import __version__, config, notebook, orchestrator, semantic
 from humbert.cli import app
 
 runner = CliRunner()
@@ -220,3 +220,72 @@ def test_ask_without_connection(home: Path) -> None:
     result = runner.invoke(app, ["ask", "anything"])
     assert result.exit_code == 1
     assert "No active connection" in result.stderr
+
+
+def test_ask_persists_a_cell(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _activate()
+    _stub_ask_deps(monkeypatch)
+    monkeypatch.setattr(orchestrator, "ask", lambda *a, **k: _cheese_answer())
+
+    result = runner.invoke(app, ["ask", "which countries produce the most cheese?"])
+    assert result.exit_code == 0
+    assert "saved as cell 1" in result.stdout
+    # And it really landed in the notebook.
+    cell = notebook.load_notebook("cheese").cell(1)
+    assert cell is not None
+    assert cell.narrative == "Germany leads."
+
+
+# --- cells / show ---------------------------------------------------------
+
+
+def _cheese_answer() -> orchestrator.Answer:
+    return orchestrator.Answer(
+        question="which countries produce the most cheese?",
+        reading="read cheese as total_production, by country",
+        selection=semantic.Selection(
+            metrics=["total_production"], group_by=["cheese_record__country"]
+        ),
+        columns=["cheese_record__country", "total_production"],
+        rows=[["Germany", "100"], ["France", "80"]],
+        compiled_sql="SELECT 1",
+        narrative="Germany leads.",
+        certainty="high",
+    )
+
+
+def test_cells_lists_the_notebook(home: Path) -> None:
+    _activate()
+    notebook.record(
+        "cheese", _cheese_answer(), vocabulary=_cheese_vocab(), model="m", created_at="2026-06-09"
+    )
+    result = runner.invoke(app, ["cells"])
+    assert result.exit_code == 0
+    assert "tier 1 · certainty high" in result.stdout
+    assert "which countries produce the most cheese?" in result.stdout
+
+
+def test_cells_empty_notebook(home: Path) -> None:
+    _activate()
+    result = runner.invoke(app, ["cells"])
+    assert result.exit_code == 0
+    assert "No cells yet" in result.stdout
+
+
+def test_show_renders_a_cell_with_its_chart_spec(home: Path) -> None:
+    _activate()
+    notebook.record(
+        "cheese", _cheese_answer(), vocabulary=_cheese_vocab(), model="m", created_at="2026-06-09"
+    )
+    result = runner.invoke(app, ["show", "1"])
+    assert result.exit_code == 0
+    assert "Germany leads." in result.stdout
+    assert "SELECT 1" in result.stdout
+    assert '"type": "bar"' in result.stdout  # the chart spec, as JSON
+
+
+def test_show_unknown_cell_fails(home: Path) -> None:
+    _activate()
+    result = runner.invoke(app, ["show", "99"])
+    assert result.exit_code == 1
+    assert "No cell 99" in result.stderr

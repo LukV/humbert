@@ -6,13 +6,14 @@ dbt/MetricFlow work to the engine adapter (the one seam that knows dbt).
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn
 
 import typer
 
-from humbert import __version__, engine, orchestrator, semantic
+from humbert import __version__, engine, notebook, orchestrator, semantic
 from humbert.config import (
     Config,
     Connection,
@@ -271,12 +272,22 @@ def ask(
     except engine.EngineError as err:
         _fail(str(err))
 
+    # Persist the answer as a cell so it can be revisited (`cells` / `show`).
+    cell = notebook.record(
+        config.active_connection or "",
+        answer,
+        vocabulary=vocabulary,
+        model=config.llm.model,
+        created_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+    )
+
     if isinstance(answer, orchestrator.NoTier1Answer):
         typer.echo("Couldn't map that to a defined metric.")
         if answer.reading:
             typer.echo(f"  reading: {answer.reading}")
         for problem in answer.problems:
             typer.echo(f"  · {problem}")
+        typer.echo(f"  saved as cell {cell.id}")
         raise typer.Exit(1)
 
     typer.echo(answer.narrative)
@@ -288,6 +299,65 @@ def ask(
     if sql:
         typer.echo("")
         typer.echo(answer.compiled_sql)
+    typer.echo("")
+    typer.echo(f"saved as cell {cell.id}")
+
+
+@app.command()
+def cells() -> None:
+    """List the cells in the active notebook."""
+    name = _active_connection_name()
+    book = notebook.load_notebook(name)
+    if not book.cells:
+        typer.echo("No cells yet. Ask a question with `humbert ask`.")
+        return
+    for cell in book.cells:
+        if cell.status == "answered":
+            meta = f"tier {cell.tier} · certainty {cell.certainty}"
+        else:
+            meta = "no Tier-1 answer"
+        typer.echo(f"{cell.id:>3}  {meta}")
+        typer.echo(f"     {cell.title}")
+
+
+@app.command()
+def show(cell_id: int = typer.Argument(..., help="Cell id (see `humbert cells`).")) -> None:
+    """Show one stored cell in full, including its chart spec."""
+    name = _active_connection_name()
+    cell = notebook.load_notebook(name).cell(cell_id)
+    if cell is None:
+        _fail(f"No cell {cell_id} in the notebook. Run `humbert cells` to list them.")
+
+    typer.echo(f"cell {cell.id} · {cell.created_at}")
+    typer.echo(cell.title)
+    typer.echo("")
+
+    if cell.status == "no_tier1":
+        typer.echo("No Tier-1 answer.")
+        if cell.reading:
+            typer.echo(f"  reading: {cell.reading}")
+        for problem in cell.problems:
+            typer.echo(f"  · {problem}")
+        return
+
+    typer.echo(cell.narrative)
+    typer.echo("")
+    typer.echo(f"reading: {cell.reading}")
+    footer = f"tier {cell.tier} · certainty {cell.certainty}"
+    if cell.model:
+        footer += f" · {cell.model}"
+    typer.echo(footer)
+    typer.echo("")
+    _print_table(cell.columns, cell.rows)
+    typer.echo("")
+    typer.echo(f"sql ({cell.dialect}):")
+    typer.echo(cell.sql)
+    typer.echo("")
+    if cell.chart is None:
+        typer.echo("chart: (none)")
+    else:
+        typer.echo("chart:")
+        typer.echo(json.dumps(cell.chart, indent=2))
 
 
 def _active_project() -> Path:
@@ -296,6 +366,14 @@ def _active_project() -> Path:
     if connection is None:
         _fail("No active connection. Run `humbert connect <dbt-project>` first.")
     return Path(connection.project_dir)
+
+
+def _active_connection_name() -> str:
+    """The active connection's name, or fail with direction."""
+    name = load_config().active_connection
+    if name is None:
+        _fail("No active connection. Run `humbert connect <dbt-project>` first.")
+    return name
 
 
 def _print_table(columns: list[str], rows: list[list[str]]) -> None:
@@ -330,6 +408,11 @@ def start(
     config = load_config()
     connection = config.active_connection or "none"
     typer.echo(f"Humbert on http://localhost:{port}  ·  connection: {connection}")
+    typer.echo(
+        "  serving the built UI — for frontend hot-reload, run `npm run dev` in "
+        "apps/web and open http://localhost:5173 instead.",
+        err=True,
+    )
 
     server = create_app(config)
     if not no_browser:
