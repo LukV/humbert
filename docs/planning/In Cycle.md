@@ -2,8 +2,8 @@
 project: humbert
 type: planning-index
 status: active
-updated: 2026-06-08
-current_pitch: beautiful-defaults
+updated: 2026-06-10
+current_pitch: none
 ---
 # In Cycle
 
