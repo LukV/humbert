@@ -23,6 +23,7 @@ from humbert.config import (
     project_dir,
     save_config,
 )
+from humbert.theme import ThemeConfig, load_theme
 
 app = typer.Typer(
     add_completion=False,
@@ -141,17 +142,19 @@ def status() -> None:
     connection = config.active
 
     if connection is None:
+        skin = load_theme(None, fallback=ThemeConfig(app_name=settings.app_name))
         typer.echo("No active connection.")
         typer.echo("Run `humbert connect <dbt-project>` to attach one.")
         typer.echo("")
-        typer.echo(f"Skin:        {settings.theme}")
-        typer.echo(f"Locale:      {settings.locale}")
+        typer.echo(f"Skin:        {skin.app_name}")
+        typer.echo(f"Locale:      {skin.locale}")
         typer.echo(f"Config dir:  {humbert_home()}")
         return
 
     name = config.active_connection
     exposed = ", ".join(connection.exposed_schemas)
     health = _health_summary(connection)
+    skin = load_theme(name, fallback=ThemeConfig(app_name=settings.app_name))
 
     typer.echo(f"Connection:  {name}")
     typer.echo(f"Project:     {connection.project_dir}   (dbt + DuckDB)")
@@ -159,8 +162,8 @@ def status() -> None:
     if connection.warehouse_path:
         built = f"   (built {connection.built_at})" if connection.built_at else ""
         typer.echo(f"Warehouse:   {connection.warehouse_path}{built}")
-    typer.echo(f"Skin:        {settings.theme}")
-    typer.echo(f"Locale:      {settings.locale}")
+    typer.echo(f"Skin:        {skin.app_name}")
+    typer.echo(f"Locale:      {skin.locale}")
     typer.echo(f"Config dir:  {project_dir(name) if name else humbert_home()}")
 
 

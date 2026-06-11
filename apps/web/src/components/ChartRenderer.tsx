@@ -116,6 +116,85 @@ function withCategoryRange(
   return s;
 }
 
+// Marks that *carry data* — the ones a skin's palette recolors. Text marks
+// (value labels, the big number) stay ink, never brand colour (§5/§7).
+const DATA_MARKS = new Set(["line", "point", "bar", "area", "circle", "square"]);
+
+/** The active skin's series colours, dark-adjusted, or null for the built-in
+ * skin (whose §5-tuned `_SERIES` must stand, so we leave its specs alone). */
+function skinSeries(theme: Theme): string[] | null {
+  const custom = customPalette();
+  if (!custom) return null;
+  return theme === "dark"
+    ? custom.map((c) => DARK_COLOR_MAP[c.toUpperCase()] ?? c)
+    : custom;
+}
+
+/** Lighten `#rrggbb` toward white by `factor` (0–1) — mirrors the backend's
+ * `_lighten_hex`, used to derive a ramp's light end from a brand colour. */
+function lighten(hex: string, factor: number): string {
+  const raw = hex.replace(/^#/, "");
+  if (raw.length !== 6) return hex;
+  const channels = [0, 2, 4].map((i) => parseInt(raw.slice(i, i + 2), 16));
+  const out = channels.map((c) => Math.min(255, Math.round(c + (255 - c) * factor)));
+  return "#" + out.map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+
+/** Replace a hardcoded `scale.range` on a color encoding with the skin palette:
+ * the full set for a categorical encoding, a light→brand ramp for a quantitative
+ * one (the ranked-bar shading). Leaves encodings without a baked range alone. */
+function recolorEncoding(
+  encoding: Record<string, unknown>,
+  palette: string[],
+  ramp: string[],
+): Record<string, unknown> {
+  const color = encoding.color as Record<string, unknown> | undefined;
+  if (!color || typeof color !== "object" || Array.isArray(color)) return encoding;
+  const scale = color.scale as Record<string, unknown> | undefined;
+  if (!scale || !Array.isArray(scale.range)) return encoding;
+  const range = color.type === "quantitative" ? ramp : palette;
+  return { ...encoding, color: { ...color, scale: { ...scale, range } } };
+}
+
+/** Repaint a single-colour data mark (line, scatter point) with the skin's
+ * lead colour. Text marks and marks that colour via an encoding pass through. */
+function recolorMark(mark: unknown, palette: string[]): unknown {
+  if (!mark || typeof mark !== "object" || Array.isArray(mark)) return mark;
+  const m = mark as Record<string, unknown>;
+  if (typeof m.type === "string" && DATA_MARKS.has(m.type) && typeof m.color === "string") {
+    return { ...m, color: palette[0] };
+  }
+  return mark;
+}
+
+/** Push a custom skin's palette into a spec's baked-in colours. The backend
+ * authors charts in the default palette — explicit per-encoding `scale.range`s
+ * and single mark colours that shadow `config.range.category` — so a custom
+ * skin only reaches the marks here. A no-op for the built-in skin. */
+function applySkinColors(
+  spec: Record<string, unknown>,
+  palette: string[],
+): Record<string, unknown> {
+  if (!palette.length) return spec;
+  const ramp = [lighten(palette[0], 0.55), palette[0]];
+  const s = { ...spec };
+  if (s.mark) s.mark = recolorMark(s.mark, palette);
+  if (s.encoding && typeof s.encoding === "object") {
+    s.encoding = recolorEncoding(s.encoding as Record<string, unknown>, palette, ramp);
+  }
+  if (Array.isArray(s.layer)) {
+    s.layer = (s.layer as Record<string, unknown>[]).map((layer) => {
+      const l = { ...layer };
+      if (l.mark) l.mark = recolorMark(l.mark, palette);
+      if (l.encoding && typeof l.encoding === "object") {
+        l.encoding = recolorEncoding(l.encoding as Record<string, unknown>, palette, ramp);
+      }
+      return l;
+    });
+  }
+  return s;
+}
+
 // Axis/legend/title overrides read live from CSS so they track theme tokens
 // instead of duplicating them. Vega-Lite has its own theme system separate
 // from CSS, so we still inject these values into the spec — but they come
@@ -240,6 +319,13 @@ export default function ChartRenderer({
     const category = categoryRange(theme);
     if (category.length) {
       s = withCategoryRange(s, category);
+    }
+
+    // …and its baked-in series ranges and single mark colours, which the
+    // category range alone can't reach. Custom skins only; default skin stands.
+    const series = skinSeries(theme);
+    if (series) {
+      s = applySkinColors(s, series);
     }
 
     if (hoverEnabled) {
