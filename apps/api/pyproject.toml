@@ -1,6 +1,6 @@
 [project]
 name = "humbert"
-version = "0.16.1"
+version = "0.16.2"
 description = "A light, local-first analytics notebook for the cultural and youth sector."
 readme = "../../README.md"
 requires-python = ">=3.13,<3.14"

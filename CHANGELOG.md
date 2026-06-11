@@ -1,3 +1,13 @@
+## v0.16.2 (2026-06-11)
+
+### Fix
+
+- **ChartRenderer**: have charts adapt to pack's theme
+
+### Refactor
+
+- remove dead frontend code, update docs to reflect current state, improve backend modularity
+
 ## v0.16.1 (2026-06-11)
 
 ### Fix
