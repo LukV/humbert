@@ -1,30 +1,22 @@
 """The seam between a stored ``Cell`` and the JSON shape the SPA renders.
 
-The frontend (ported from Lumen) reads a richer, nested cell — ``result`` /
-``sql`` / ``chart`` / ``narrative`` / ``refusal`` / ``metadata`` — than the flat
-``notebook.Cell`` we persist. This module is the one place that mapping lives, so
-the persistence model stays Humbert's own and the wire shape stays the frontend's.
+The frontend reads a richer, nested cell — ``result`` / ``sql`` / ``chart`` /
+``narrative`` / ``refusal`` / ``metadata`` — than the flat ``notebook.Cell`` we
+persist. This module is the one place that mapping lives, so the persistence
+model stays Humbert's own and the wire shape stays the frontend's.
 
 The one subtlety is data typing: Humbert stores every result value as text, but
-Vega-Lite needs *numbers* under a ``quantitative`` encoding. So the measure
-columns (the ones named in the selection's metrics) are coerced back to numbers
-here — exactly the columns ``chart.py`` coerces when it builds the spec.
+Vega-Lite needs *numbers* under a ``quantitative`` encoding. The measure columns
+(the ones named in the selection's metrics) are coerced back to numbers via
+``chart.rows_to_records`` — the same coercion the chart spec gets, so chart and
+table can never disagree.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from humbert import notebook
-
-
-def _num(value: str) -> Any:
-    """Parse a cell to a number when it is one; leave it as text otherwise."""
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return value
-    return int(parsed) if parsed.is_integer() else parsed
+from humbert import chart, notebook
 
 
 def _refusal_detail(cell: notebook.Cell) -> str:
@@ -38,13 +30,7 @@ def wire_cell(cell: notebook.Cell) -> dict[str, Any]:
     """Serialize a stored cell into the nested shape the frontend renders."""
     answered = cell.status == "answered"
     measures = set(cell.selection.metrics) if cell.selection else set()
-    data = [
-        {
-            col: _num(val) if col in measures else val
-            for col, val in zip(cell.columns, row, strict=False)
-        }
-        for row in cell.rows
-    ]
+    data = chart.rows_to_records(cell.columns, cell.rows, measures)
 
     sql = (
         {
@@ -72,7 +58,9 @@ def wire_cell(cell: notebook.Cell) -> dict[str, Any]:
         else None
     )
 
-    chart = {"spec": cell.chart, "auto_detected": True, "theme": "humbert"} if cell.chart else None
+    chart_block = (
+        {"spec": cell.chart, "auto_detected": True, "theme": "humbert"} if cell.chart else None
+    )
 
     narrative = (
         {"text": cell.narrative, "data_references": []} if answered and cell.narrative else None
@@ -106,7 +94,7 @@ def wire_cell(cell: notebook.Cell) -> dict[str, Any]:
         },
         "sql": sql,
         "result": result,
-        "chart": chart,
+        "chart": chart_block,
         "narrative": narrative,
         "refusal": refusal,
         "metadata": {

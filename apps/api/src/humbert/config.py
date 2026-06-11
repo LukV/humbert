@@ -41,13 +41,10 @@ def project_dir(name: str) -> Path:
 
 
 class Settings(BaseModel):
-    max_result_rows: int = 1000
-    statement_timeout_seconds: int = 30
     theme: str = "humbert"
     # The app name is branding that travels with the skin, but is config, not a token.
     app_name: str = "Humbert"
     locale: Locale = "en"
-    telemetry_enabled: bool = True
     # The empty-state chips — one per chart shape for the bundled cheese source.
     # Static for v0; vocabulary-derived suggestions are a later refinement.
     suggestions: list[str] = Field(
@@ -71,7 +68,6 @@ class Connection(BaseModel):
 
     type: Literal["dbt"] = "dbt"
     project_dir: str
-    active_pack: str | None = None
     # The dbt layer(s) Tier 2 may query and that introspection surfaces.
     exposed_schemas: list[str] = Field(default_factory=lambda: ["marts"])
     warehouse_path: str | None = None

@@ -1,7 +1,7 @@
 {
   "name": "humbert-web",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.16.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "@fontsource/dm-sans": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/source-serif-4": "^5.2.9",
+    "dompurify": "^3.4.9",
     "marked": "^17.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

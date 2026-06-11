@@ -13,7 +13,6 @@ The functions read dbt's generated artifacts (`target/manifest.json`,
 from __future__ import annotations
 
 import csv
-import json
 import os
 import re
 import shutil
@@ -21,9 +20,10 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 Severity = Literal["fatal", "degraded"]
 DimensionKind = Literal["categorical", "time"]
@@ -156,44 +156,142 @@ def parse(project_dir: Path) -> None:
         raise EngineError(f"`dbt parse` failed:\n{result.stdout}\n{result.stderr}".strip())
 
 
-def _read_json(path: Path) -> dict[str, object]:
+# --- dbt artifacts ----------------------------------------------------------
+#
+# The slices of dbt's generated JSON the engine reads, as Pydantic models with
+# everything else ignored — the shape assumptions are explicit, and the readers
+# below stay a few lines each. Parsed artifacts are cached by mtime: a single
+# vocabulary build consults the same manifest several times, and the files grow
+# to megabytes on real projects.
+
+
+class _ManifestNode(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    resource_type: str = ""
+    name: str = ""
+    schema_name: str = Field(default="", alias="schema")
+    config: dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def classification(self) -> str | None:
+        # dbt puts model meta under config.meta; the top-level key is the
+        # older layout — read both so either authoring style classifies.
+        meta = self.config.get("meta") or self.meta
+        value = meta.get("classification") if isinstance(meta, dict) else None
+        return value if isinstance(value, str) else None
+
+
+class _Manifest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    nodes: dict[str, _ManifestNode] = Field(default_factory=dict)
+
+    def models(self) -> list[_ManifestNode]:
+        return [n for n in self.nodes.values() if n.resource_type == "model" and n.name]
+
+
+class _Named(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+
+
+class _SemanticDimension(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    type: str = ""
+    type_params: dict[str, Any] | None = None
+
+    @property
+    def grain(self) -> str | None:
+        value = (self.type_params or {}).get("time_granularity")
+        return value if isinstance(value, str) else None
+
+
+class _NodeRelation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    alias: str = ""
+
+
+class _SemanticModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    defaults: dict[str, Any] | None = None
+    dimensions: list[_SemanticDimension] = Field(default_factory=list)
+    measures: list[_Named] = Field(default_factory=list)
+    node_relation: _NodeRelation | None = None
+
+
+class _MetricTypeParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    measure: _Named | None = None
+    input_measures: list[_Named] = Field(default_factory=list)
+
+
+class _Metric(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    type_params: _MetricTypeParams | None = None
+
+
+class _SemanticManifest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    semantic_models: list[_SemanticModel] = Field(default_factory=list)
+    metrics: list[_Metric] = Field(default_factory=list)
+
+
+_artifact_cache: dict[Path, tuple[float, BaseModel]] = {}
+
+
+def _load_artifact[A: BaseModel](path: Path, schema: type[A]) -> A:
     if not path.is_file():
         raise EngineError(f"Expected dbt artifact not found: {path}. Did the build run?")
-    data = json.loads(path.read_text())
-    if not isinstance(data, dict):
-        raise EngineError(f"Malformed dbt artifact: {path}")
-    return data
+    mtime = path.stat().st_mtime
+    hit = _artifact_cache.get(path)
+    if hit is not None and hit[0] == mtime and isinstance(hit[1], schema):
+        return hit[1]
+    try:
+        parsed = schema.model_validate_json(path.read_text())
+    except ValidationError as err:
+        raise EngineError(f"Malformed dbt artifact: {path}") from err
+    _artifact_cache[path] = (mtime, parsed)
+    return parsed
+
+
+def _manifest(project_dir: Path) -> _Manifest:
+    return _load_artifact(project_dir / "target" / "manifest.json", _Manifest)
+
+
+def _semantic_manifest(project_dir: Path) -> _SemanticManifest:
+    return _load_artifact(project_dir / "target" / "semantic_manifest.json", _SemanticManifest)
+
+
+def artifact_mtimes(project_dir: Path) -> tuple[float, float] | None:
+    """The (manifest, semantic manifest) mtimes, or ``None`` before a build —
+    the key the semantic module uses to know when a discovered vocabulary is
+    stale. A rebuild rewrites the artifacts, so the mtimes move with the data."""
+    manifest = project_dir / "target" / "manifest.json"
+    semantic_manifest = project_dir / "target" / "semantic_manifest.json"
+    if not (manifest.is_file() and semantic_manifest.is_file()):
+        return None
+    return manifest.stat().st_mtime, semantic_manifest.stat().st_mtime
 
 
 def _models_in_schemas(project_dir: Path, exposed_schemas: list[str]) -> list[str]:
     """Model names whose materialised schema is one of the exposed layers."""
-    manifest = _read_json(project_dir / "target" / "manifest.json")
-    nodes = manifest.get("nodes", {})
     wanted = {s.lower() for s in exposed_schemas}
-    models: list[str] = []
-    if isinstance(nodes, dict):
-        for node in nodes.values():
-            if not isinstance(node, dict):
-                continue
-            if node.get("resource_type") != "model":
-                continue
-            schema = str(node.get("schema", "")).lower()
-            if schema in wanted:
-                name = node.get("name")
-                if isinstance(name, str):
-                    models.append(name)
-    return models
+    return [n.name for n in _manifest(project_dir).models() if n.schema_name.lower() in wanted]
 
 
 def metric_names(project_dir: Path) -> list[str]:
-    manifest = _read_json(project_dir / "target" / "semantic_manifest.json")
-    metrics = manifest.get("metrics", [])
-    names: list[str] = []
-    if isinstance(metrics, list):
-        for metric in metrics:
-            if isinstance(metric, dict) and isinstance(metric.get("name"), str):
-                names.append(metric["name"])
-    return names
+    return [m.name for m in _semantic_manifest(project_dir).metrics if m.name]
 
 
 def _validate_configs(project_dir: Path) -> list[Issue]:
@@ -279,25 +377,18 @@ def dimension_types(project_dir: Path) -> dict[str, DimensionMeta]:
     (``cheese_record__country``) resolves by its suffix. ``metric_time`` is
     added explicitly — it's synthetic, with the grain of the agg-time dimension.
     """
-    manifest = _read_json(project_dir / "target" / "semantic_manifest.json")
     out: dict[str, DimensionMeta] = {}
     agg_grain: str | None = None
-    semantic_models = manifest.get("semantic_models", [])
-    if isinstance(semantic_models, list):
-        for model in semantic_models:
-            if not isinstance(model, dict):
+    for model in _semantic_manifest(project_dir).semantic_models:
+        agg_time = (model.defaults or {}).get("agg_time_dimension")
+        for dim in model.dimensions:
+            if not dim.name:
                 continue
-            agg_time = (model.get("defaults") or {}).get("agg_time_dimension")
-            for dim in model.get("dimensions", []) or []:
-                if not isinstance(dim, dict) or not isinstance(dim.get("name"), str):
-                    continue
-                kind: DimensionKind = "time" if dim.get("type") == "time" else "categorical"
-                grain = None
-                if kind == "time":
-                    grain = (dim.get("type_params") or {}).get("time_granularity")
-                out[dim["name"]] = DimensionMeta(kind=kind, grain=grain)
-                if dim["name"] == agg_time:
-                    agg_grain = grain
+            kind: DimensionKind = "time" if dim.type == "time" else "categorical"
+            grain = dim.grain if kind == "time" else None
+            out[dim.name] = DimensionMeta(kind=kind, grain=grain)
+            if dim.name == agg_time:
+                agg_grain = grain
     out["metric_time"] = DimensionMeta(kind="time", grain=agg_grain)
     return out
 
@@ -311,21 +402,7 @@ def dimension_types(project_dir: Path) -> dict[str, DimensionMeta]:
 
 def classifications(project_dir: Path) -> dict[str, str | None]:
     """Each model's ``meta.classification`` (``None`` when unset)."""
-    manifest = _read_json(project_dir / "target" / "manifest.json")
-    out: dict[str, str | None] = {}
-    nodes = manifest.get("nodes", {})
-    if isinstance(nodes, dict):
-        for node in nodes.values():
-            if not isinstance(node, dict) or node.get("resource_type") != "model":
-                continue
-            name = node.get("name")
-            if not isinstance(name, str):
-                continue
-            config = node.get("config")
-            meta = (config.get("meta") if isinstance(config, dict) else None) or node.get("meta")
-            value = meta.get("classification") if isinstance(meta, dict) else None
-            out[name] = value if isinstance(value, str) else None
-    return out
+    return {n.name: n.classification for n in _manifest(project_dir).models()}
 
 
 def metric_source_models(project_dir: Path) -> dict[str, list[str]]:
@@ -335,36 +412,24 @@ def metric_source_models(project_dir: Path) -> dict[str, list[str]]:
     ``node_relation`` names the dbt model it's built on. That model carries the
     classification the guard checks.
     """
-    manifest = _read_json(project_dir / "target" / "semantic_manifest.json")
-    semantic_models = manifest.get("semantic_models", [])
-    metrics = manifest.get("metrics", [])
-    measure_to_model: dict[str, str] = {}
-    for model in semantic_models if isinstance(semantic_models, list) else []:
-        if not isinstance(model, dict):
-            continue
-        relation = model.get("node_relation") or {}
-        alias = relation.get("alias") if isinstance(relation, dict) else None
-        if not isinstance(alias, str):
-            continue
-        for measure in model.get("measures", []) or []:
-            if isinstance(measure, dict) and isinstance(measure.get("name"), str):
-                measure_to_model[measure["name"]] = alias
+    manifest = _semantic_manifest(project_dir)
+    measure_to_model = {
+        measure.name: model.node_relation.alias
+        for model in manifest.semantic_models
+        if model.node_relation is not None and model.node_relation.alias
+        for measure in model.measures
+        if measure.name
+    }
 
     out: dict[str, list[str]] = {}
-    for metric in metrics if isinstance(metrics, list) else []:
-        if not isinstance(metric, dict) or not isinstance(metric.get("name"), str):
+    for metric in manifest.metrics:
+        if not metric.name:
             continue
-        params = metric.get("type_params") or {}
-        measures: set[str] = set()
-        for item in params.get("input_measures") or []:
-            if isinstance(item, dict) and isinstance(item.get("name"), str):
-                measures.add(item["name"])
-        measure = params.get("measure")
-        if isinstance(measure, dict) and isinstance(measure.get("name"), str):
-            measures.add(measure["name"])
-        out[metric["name"]] = sorted(
-            {measure_to_model[m] for m in measures if m in measure_to_model}
-        )
+        params = metric.type_params or _MetricTypeParams()
+        measures = {m.name for m in params.input_measures if m.name}
+        if params.measure is not None and params.measure.name:
+            measures.add(params.measure.name)
+        out[metric.name] = sorted({measure_to_model[m] for m in measures if m in measure_to_model})
     return out
 
 
@@ -391,7 +456,9 @@ def query(
 
     The caller is responsible for having validated names against the vocabulary;
     this is the mechanical compile-and-run. Two invocations: ``--csv`` for the
-    rows (mf writes a file), ``--explain`` for the SQL.
+    rows (mf writes a file), ``--explain`` for the SQL. They run in series, not
+    concurrently — both open the DuckDB warehouse, and DuckDB allows one
+    writing process at a time (a concurrent pair fails on the file lock).
     """
     ensure_available()
     flags: list[str] = ["query", "--metrics", ",".join(metrics)]

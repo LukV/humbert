@@ -476,11 +476,10 @@ wheels = [
 
 [[package]]
 name = "humbert"
-version = "0.11.0"
+version = "0.16.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["anthropic"] },
     { name = "pyyaml" },
@@ -508,7 +507,6 @@ requires-dist = [
     { name = "dbt-duckdb", marker = "extra == 'dbt'", specifier = ">=1.9" },
     { name = "dbt-metricflow", marker = "extra == 'dbt'", specifier = ">=0.13,<0.14" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "platformdirs", specifier = ">=4.3" },
     { name = "pydantic", specifier = ">=2.10" },
     { name = "pydantic-ai-slim", extras = ["anthropic"], specifier = ">=0.0.40" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -884,15 +882,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ca/bc/f35b8446f4531a7cb215605d100cd88b7ac6f44ab3fc94870c120ab3adbf/pathspec-0.12.1.tar.gz", hash = "sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712", size = 51043, upload-time = "2023-12-10T22:30:45Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cc/20/ff623b09d963f88bfde16306a54e12ee5ea43e9b597108672ff3a408aad6/pathspec-0.12.1-py3-none-any.whl", hash = "sha256:a0d503e138a4c123b27490a4f7beda6a01c6f288df0e4a8b79c7eb0dc7b4cc08", size = 31191, upload-time = "2023-12-10T22:30:43.14Z" },
-]
-
-[[package]]
-name = "platformdirs"
-version = "4.10.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d7/47/e4501f49c178ae1d9f4a75073fda4204f52647993f075a9db4d14930e0c5/platformdirs-4.10.0.tar.gz", hash = "sha256:31e761a6a0ca04faf7353ea759bdba55652be214725111e5aac52dfa29d4bef7", size = 31224, upload-time = "2026-05-28T03:32:53.587Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/e6/cd9575ac904136b3cbf7aa7ee819ef86eedb7274e46f230e94ea4342e729/platformdirs-4.10.0-py3-none-any.whl", hash = "sha256:fb516cdb12eb0d857d0cd85a7c57cea4d060bee4578d6cf5a14dfdf8cbf8784a", size = 22743, upload-time = "2026-05-28T03:32:52.175Z" },
 ]
 
 [[package]]

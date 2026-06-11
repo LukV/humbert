@@ -20,6 +20,8 @@ export async function fetchWithRetry(
     try {
       return await fetch(input, init);
     } catch (err) {
+      // An abort is the caller's decision, not a flaky server — never retry it.
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
       lastError = err;
       if (i < attempts - 1) {
         await new Promise((resolve) =>

@@ -17,10 +17,11 @@ names fall through as data the caller can act on.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from humbert import engine
 
@@ -160,7 +161,26 @@ def load_pack(project_dir: Path) -> Pack:
     Only ``open`` metrics make it into the vocabulary; the rest are recorded as
     withheld. Every downstream consumer (``vocab``, ``query``, block 2's tiers)
     reads the vocabulary and so inherits the guard for free.
+
+    Discovery shells out to ``mf`` once per metric — seconds each — so the
+    result is cached on disk in the project's ``target/``, keyed on the dbt
+    artifacts' mtimes. A rebuild (``connect --build``, ``dbt build``) moves the
+    key and the next load rediscovers; everything else reads the cache,
+    including a fresh CLI process.
     """
+    key = engine.artifact_mtimes(project_dir)
+    if key is not None:
+        cached = _read_pack_cache(project_dir, key)
+        if cached is not None:
+            return cached
+    pack = _discover_pack(project_dir)
+    if key is not None:
+        _write_pack_cache(project_dir, key, pack)
+    return pack
+
+
+def _discover_pack(project_dir: Path) -> Pack:
+    """The real discovery: classify every metric, list each one's dimensions."""
     types = engine.dimension_types(project_dir)
     exposed, withheld = classify_metrics(project_dir)
     metrics: list[MetricInfo] = []
@@ -175,6 +195,35 @@ def load_pack(project_dir: Path) -> Pack:
                 dims.append(DimensionInfo(name=dunder, kind=meta.kind, grain=meta.grain))
         metrics.append(MetricInfo(name=name, dimensions=dims))
     return Pack(vocabulary=Vocabulary(metrics=metrics), withheld=withheld)
+
+
+_PACK_ADAPTER: TypeAdapter[Pack] = TypeAdapter(Pack)
+
+
+def _pack_cache_path(project_dir: Path) -> Path:
+    return project_dir / "target" / "humbert_pack.json"
+
+
+def _read_pack_cache(project_dir: Path, key: tuple[float, float]) -> Pack | None:
+    """The cached pack if it matches the artifacts' mtimes; None on any miss.
+
+    A malformed or stale cache is never an error — discovery just runs again.
+    """
+    try:
+        raw = json.loads(_pack_cache_path(project_dir).read_text())
+        if isinstance(raw, dict) and raw.get("key") == list(key):
+            return _PACK_ADAPTER.validate_python(raw["pack"])
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def _write_pack_cache(project_dir: Path, key: tuple[float, float], pack: Pack) -> None:
+    try:
+        payload = {"key": list(key), "pack": _PACK_ADAPTER.dump_python(pack)}
+        _pack_cache_path(project_dir).write_text(json.dumps(payload, indent=2) + "\n")
+    except OSError:
+        pass  # the cache is an optimisation; failing to write it must not fail the load
 
 
 PACK_README = """\

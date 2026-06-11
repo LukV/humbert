@@ -5,7 +5,9 @@ interface StageIndicatorProps {
 }
 
 export default function StageIndicator({ stage }: StageIndicatorProps) {
-  const label = t(`stage.${stage}`) ?? stage;
+  // t() falls back to the raw key for an unknown stage; show the bare stage then.
+  const key = `stage.${stage}`;
+  const label = t(key);
 
   return (
     <div className="stage-indicator">
@@ -14,7 +16,7 @@ export default function StageIndicator({ stage }: StageIndicatorProps) {
         <span />
         <span />
       </div>
-      {label}
+      {label === key ? stage : label}
     </div>
   );
 }

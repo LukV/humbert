@@ -96,7 +96,7 @@ def connect(
             typer.echo(f"Building {project.name} …")
             engine.build(project)
         health = engine.introspect(project, exposed)
-        _exposed_metrics, withheld = semantic.classify_metrics(project)
+        exposed_metrics, withheld = semantic.classify_metrics(project)
     except engine.EngineError as err:
         _fail(str(err))
 
@@ -126,7 +126,7 @@ def connect(
         typer.echo(f"  {marker} {issue.severity}: {issue.message.splitlines()[0]}")
     for item in withheld:
         typer.echo(f"  · withheld {item.metric}: {item.reason}")
-    if withheld and not _exposed_metrics:
+    if withheld and not exposed_metrics:
         typer.echo(
             "  All metrics withheld — classify the governed layer with "
             "`meta: {classification: open}` in dbt and reconnect."
@@ -267,15 +267,15 @@ def ask(
     except (engine.EngineError, orchestrator.OrchestratorError) as err:
         _fail(str(err))
 
-    stages = {
+    stages: dict[orchestrator.Stage, str] = {
         "planning": "planning the query …",
         "replanning": "adjusting the query …",
         "running": "running the query …",
         "narrating": "writing the answer …",
     }
 
-    def show_stage(stage: str) -> None:
-        typer.echo(f"  · {stages.get(stage, stage)}", err=True)
+    def show_stage(stage: orchestrator.Stage) -> None:
+        typer.echo(f"  · {stages[stage]}", err=True)
 
     try:
         answer = orchestrator.ask(
@@ -294,7 +294,6 @@ def ask(
         answer,
         vocabulary=vocabulary,
         model=config.llm.model,
-        created_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
     if isinstance(answer, orchestrator.NoTier1Answer):

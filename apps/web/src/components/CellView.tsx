@@ -1,11 +1,14 @@
-import { useRef, useState } from "react";
+import { Suspense, lazy, memo, useState } from "react";
 import type { Cell } from "../types/cell";
 import { apiSend } from "../utils/api";
-import { t } from "../locales";
-import ChartRenderer from "./ChartRenderer";
+import { t, useLocale } from "../locales";
 import CodeView from "./CodeView";
 import FeedbackControls from "./FeedbackControls";
 import NarrativeView from "./NarrativeView";
+
+// The chart stack (vega + vega-lite) dwarfs the rest of the bundle; loading it
+// lazily keeps the hero view light and splits vega into its own chunk.
+const ChartRenderer = lazy(() => import("./ChartRenderer"));
 
 interface CellViewProps {
   cell: Cell;
@@ -15,12 +18,20 @@ interface CellViewProps {
   onAsk: (question: string) => void;
 }
 
-export default function CellView({ cell, theme, onCellUpdate, onCellDelete, onAsk }: CellViewProps) {
+// Memoized so the streaming reasoning text (which re-renders App per SSE
+// chunk) doesn't re-render every settled cell in the notebook.
+export default memo(function CellView({
+  cell,
+  theme,
+  onCellUpdate,
+  onCellDelete,
+  onAsk,
+}: CellViewProps) {
+  useLocale();
   const [showCode, setShowCode] = useState(false);
   const [hoveredDatum, setHoveredDatum] = useState<Record<string, unknown> | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
-  const titleInputRef = useRef<HTMLInputElement>(null);
 
   const hasErrors = cell.result?.diagnostics?.some(
     (d) => d.severity === "error"
@@ -34,7 +45,6 @@ export default function CellView({ cell, theme, onCellUpdate, onCellDelete, onAs
   const startEditing = () => {
     setTitleDraft(displayTitle);
     setEditingTitle(true);
-    setTimeout(() => titleInputRef.current?.select(), 0);
   };
 
   const commitTitle = async () => {
@@ -81,7 +91,8 @@ export default function CellView({ cell, theme, onCellUpdate, onCellDelete, onAs
         <div className="cell__header">
           {editingTitle ? (
             <input
-              ref={titleInputRef}
+              autoFocus
+              onFocus={(e) => e.currentTarget.select()}
               className="cell__title-input"
               value={titleDraft}
               onChange={(e) => setTitleDraft(e.target.value)}
@@ -159,12 +170,14 @@ export default function CellView({ cell, theme, onCellUpdate, onCellDelete, onAs
 
         {!isExplanation && cell.chart && hasData && (
           <div className="cell__chart">
-            <ChartRenderer
-              spec={cell.chart.spec}
-              data={cell.result!.data}
-              theme={theme}
-              onHoverData={setHoveredDatum}
-            />
+            <Suspense fallback={<div className="chart-container" />}>
+              <ChartRenderer
+                spec={cell.chart.spec}
+                data={cell.result!.data}
+                theme={theme}
+                onHoverData={setHoveredDatum}
+              />
+            </Suspense>
           </div>
         )}
 
@@ -224,12 +237,15 @@ export default function CellView({ cell, theme, onCellUpdate, onCellDelete, onAs
         </div>
       )}
 
-      {/* Code drawer (analysis only) */}
+      {/* Code drawer (analysis only) — mounted only when open, so a closed
+          drawer costs nothing; keyed by the SQL so an updated cell resets it. */}
       {!isExplanation && cell.sql && (
         <div className={`code-drawer ${showCode ? "open" : ""}`}>
-          <CodeView cell={cell} onCellUpdate={onCellUpdate} />
+          {showCode && (
+            <CodeView key={cell.sql.query} cell={cell} onCellUpdate={onCellUpdate} />
+          )}
         </div>
       )}
     </div>
   );
-}
+});

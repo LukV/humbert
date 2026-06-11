@@ -40,6 +40,10 @@ from humbert.config import LLM
 
 Certainty = Literal["high", "medium"]
 
+# The stage keys ``ask`` emits as the loop moves. Renderers (CLI, server) map
+# them to copy; typing them lets mypy police those mappings against drift.
+Stage = Literal["planning", "replanning", "running", "narrating"]
+
 
 class OrchestratorError(Exception):
     """A problem reaching or configuring the model — not a failed answer."""
@@ -112,12 +116,18 @@ you chose, e.g. "read cheese as total_production, by country, top 5".
 - If nothing fits, still return your best attempt — it will be validated, not \
 trusted blindly."""
 
+# Module-level, the way PydanticAI recommends: the instructions are static and
+# the configured model is passed per run.
+_plan_agent: Agent[None, Plan] = Agent(output_type=Plan, instructions=_PLAN_INSTRUCTIONS)
+
 _NARRATE_INSTRUCTIONS = """\
 You write a short, plain answer to the analyst's question using ONLY the numbers \
 in the result rows. This is the one rule that cannot bend: never state, estimate, \
 or round to a figure that is not present in the rows. Lead with the answer, stay \
 warm and concise, and don't narrate the columns mechanically. If there are no \
 rows, say plainly that the query returned nothing."""
+
+_narrate_agent: Agent[None, str] = Agent(output_type=str, instructions=_NARRATE_INSTRUCTIONS)
 
 
 def build_model(llm: LLM) -> Model:
@@ -143,7 +153,7 @@ def ask(
     project_dir: Path,
     vocabulary: semantic.Vocabulary,
     model: Model,
-    on_stage: Callable[[str], None] | None = None,
+    on_stage: Callable[[Stage], None] | None = None,
     prior_question: str | None = None,
     prior_selection: semantic.Selection | None = None,
 ) -> Answer | NoTier1Answer:
@@ -164,7 +174,7 @@ def ask(
     and to ignore it otherwise. The output is still a validated Tier-1 selection,
     so a misread is a quality miss the ``reading`` surfaces — never an unsafe one.
     """
-    notify = on_stage or (lambda _stage: None)
+    notify: Callable[[Stage], None] = on_stage or (lambda _stage: None)
 
     notify("planning")
     plan, resolved, first_try = _plan_and_resolve(
@@ -202,7 +212,7 @@ def _plan_and_resolve(
     question: str,
     vocabulary: semantic.Vocabulary,
     model: Model,
-    notify: Callable[[str], None],
+    notify: Callable[[Stage], None],
     prior_question: str | None = None,
     prior_selection: semantic.Selection | None = None,
 ) -> tuple[Plan, semantic.ResolvedSelection | semantic.Unresolved, bool]:
@@ -211,11 +221,12 @@ def _plan_and_resolve(
     Returns the (last) plan, the resolution, and whether it resolved on the first
     attempt — the coarse signal ``ask`` turns into certainty.
     """
-    agent = Agent(model, output_type=Plan, instructions=_PLAN_INSTRUCTIONS)
     vocab_text = _vocabulary_prompt(vocabulary)
     prior_text = _prior_prompt(prior_question, prior_selection)
 
-    run = agent.run_sync(f"{prior_text}Question: {question}\n\nAvailable vocabulary:\n{vocab_text}")
+    run = _plan_agent.run_sync(
+        f"{prior_text}Question: {question}\n\nAvailable vocabulary:\n{vocab_text}", model=model
+    )
     plan: Plan = run.output
     resolved = semantic.resolve(plan.selection, vocabulary)
     if isinstance(resolved, semantic.ResolvedSelection):
@@ -224,10 +235,11 @@ def _plan_and_resolve(
     # One correction: hand back exactly what didn't resolve and let it re-plan.
     notify("replanning")
     gaps = "\n".join(f"- {p}" for p in resolved.problems)
-    retry = agent.run_sync(
+    retry = _plan_agent.run_sync(
         "That selection didn't resolve:\n"
         f"{gaps}\n\n"
         "Propose a corrected Selection using only the names in the vocabulary above.",
+        model=model,
         message_history=run.all_messages(),
     )
     plan = retry.output
@@ -236,13 +248,13 @@ def _plan_and_resolve(
 
 def _narrate(question: str, plan: Plan, result: semantic.Result, model: Model) -> str:
     """The second call: prose over the rows the engine actually returned."""
-    agent = Agent(model, output_type=str, instructions=_NARRATE_INSTRUCTIONS)
     rows_text = _rows_prompt(result)
-    out = agent.run_sync(
+    out = _narrate_agent.run_sync(
         f"Question: {question}\n"
         f"Reading: {plan.reading}\n\n"
         f"Result:\n{rows_text}\n\n"
-        "Write the answer."
+        "Write the answer.",
+        model=model,
     )
     return out.output.strip()
 

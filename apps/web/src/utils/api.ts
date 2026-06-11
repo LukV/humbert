@@ -7,7 +7,7 @@
  *
  * Retry is opt-in (`retry: true`) so the SSE endpoints and DELETE/POST
  * mutations don't accidentally re-fire on transient flakes. App-startup calls
- * use `retry: true` to ride out the race between `lumen start` opening the
+ * use `retry: true` to ride out the race between `humbert start` opening the
  * browser and uvicorn binding the port.
  */
 

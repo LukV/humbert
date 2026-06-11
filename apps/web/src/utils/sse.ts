@@ -1,7 +1,9 @@
+import type { Cell } from "../types/cell";
+
 /** Parse SSE events from a fetch Response and dispatch to handlers. */
 export interface SSEHandlers {
   onStage?: (stage: string) => void;
-  onCell?: (data: unknown) => void;
+  onCell?: (cell: Cell) => void;
   onError?: (message: string) => void;
   onReasoning?: (text: string) => void;
   onRefusal?: (data: unknown) => void;
@@ -39,6 +41,43 @@ export async function consumeSSE(
     }, INACTIVITY_TIMEOUT_MS);
   };
 
+  const dispatch = () => {
+    if (eventType && eventData) {
+      try {
+        const data: unknown = JSON.parse(eventData);
+        if (eventType === "stage") {
+          handlers.onStage?.((data as { stage: string }).stage);
+        } else if (eventType === "cell") {
+          // The one place the wire payload is trusted as a Cell.
+          handlers.onCell?.(data as Cell);
+        } else if (eventType === "error") {
+          handlers.onError?.((data as { message: string }).message);
+        } else if (eventType === "refusal") {
+          handlers.onRefusal?.(data);
+        } else if (eventType === "reasoning") {
+          handlers.onReasoning?.((data as { text: string }).text);
+        }
+      } catch (e) {
+        console.error("[SSE] parse error:", e, eventData);
+      }
+    }
+    eventType = "";
+    eventData = "";
+  };
+
+  const processLine = (rawLine: string) => {
+    const line = rawLine.replace(/\r$/, "");
+    if (line.startsWith("event:")) {
+      eventType = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      // Per the SSE spec, consecutive data: lines join with a newline.
+      const chunk = line.slice(5).trimStart();
+      eventData = eventData ? `${eventData}\n${chunk}` : chunk;
+    } else if (line === "") {
+      dispatch();
+    }
+  };
+
   try {
     resetInactivityTimer();
 
@@ -53,38 +92,14 @@ export async function consumeSSE(
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-
-      for (const rawLine of lines) {
-        const line = rawLine.replace(/\r$/, "");
-
-        if (line.startsWith("event:")) {
-          eventType = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          eventData = line.slice(5).trim();
-        } else if (line === "") {
-          if (eventType && eventData) {
-            try {
-              const data = JSON.parse(eventData);
-              if (eventType === "stage") {
-                handlers.onStage?.(data.stage);
-              } else if (eventType === "cell") {
-                handlers.onCell?.(data);
-              } else if (eventType === "error") {
-                handlers.onError?.(data.message);
-              } else if (eventType === "refusal") {
-                handlers.onRefusal?.(data);
-              } else if (eventType === "reasoning") {
-                handlers.onReasoning?.(data.text);
-              }
-            } catch (e) {
-              console.error("[SSE] parse error:", e, eventData);
-            }
-          }
-          eventType = "";
-          eventData = "";
-        }
-      }
+      lines.forEach(processLine);
     }
+
+    // Flush: a stream that ends without a trailing blank line still carries
+    // its last event (typically the cell) — don't drop it.
+    buffer += decoder.decode();
+    if (buffer) buffer.split("\n").forEach(processLine);
+    dispatch();
   } catch (err) {
     // AbortError is expected when the signal is aborted
     if (err instanceof DOMException && err.name === "AbortError") return;

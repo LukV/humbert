@@ -15,6 +15,9 @@ are later pitches — the fields are here, the doors aren't opened yet.
 
 from __future__ import annotations
 
+import json
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,6 +27,14 @@ from humbert import chart, orchestrator, semantic
 from humbert.config import project_dir
 
 CellStatus = Literal["answered", "no_tier1"]
+
+# The human-readable stamp cells carry (shown verbatim in the UI footer).
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M"
+
+# Mutations are load → modify → save on one JSON file, and the server runs each
+# ask on its own thread — serialise them so two in-flight answers can't both
+# claim the same id and silently drop a cell.
+_write_lock = threading.Lock()
 
 
 class Cell(BaseModel):
@@ -101,21 +112,25 @@ def record(
     *,
     vocabulary: semantic.Vocabulary,
     model: str | None,
-    created_at: str,
+    created_at: str | None = None,
     parent_id: int | None = None,
 ) -> Cell:
-    """Append an answer to the connection's notebook as a new cell, and persist it."""
-    notebook = load_notebook(connection_name)
-    cell = _cell_from_answer(
-        answer,
-        cell_id=notebook.next_id(),
-        vocabulary=vocabulary,
-        model=model,
-        created_at=created_at,
-        parent_id=parent_id,
-    )
-    notebook.cells.append(cell)
-    save_notebook(connection_name, notebook)
+    """Append an answer to the connection's notebook as a new cell, and persist it.
+
+    ``created_at`` defaults to now; pass it only to pin a stamp (tests do).
+    """
+    with _write_lock:
+        notebook = load_notebook(connection_name)
+        cell = _cell_from_answer(
+            answer,
+            cell_id=notebook.next_id(),
+            vocabulary=vocabulary,
+            model=model,
+            created_at=created_at or datetime.now().strftime(TIMESTAMP_FORMAT),
+            parent_id=parent_id,
+        )
+        notebook.cells.append(cell)
+        save_notebook(connection_name, notebook)
     return cell
 
 
@@ -125,12 +140,13 @@ def set_title(connection_name: str, cell_id: int, title: str) -> Cell | None:
     An empty title means "fall back to the question" — the frontend renders
     ``title || question``, so we store the empty string verbatim.
     """
-    notebook = load_notebook(connection_name)
-    cell = notebook.cell(cell_id)
-    if cell is None:
-        return None
-    cell.title = title
-    save_notebook(connection_name, notebook)
+    with _write_lock:
+        notebook = load_notebook(connection_name)
+        cell = notebook.cell(cell_id)
+        if cell is None:
+            return None
+        cell.title = title
+        save_notebook(connection_name, notebook)
     return cell
 
 
@@ -140,13 +156,31 @@ def delete(connection_name: str, cell_id: int) -> bool:
     Returns whether a cell was removed — an unknown id is a quiet no-op, not an
     error, so a double-delete (or a stale UI) is harmless.
     """
-    notebook = load_notebook(connection_name)
-    remaining = [c for c in notebook.cells if c.id != cell_id]
-    if len(remaining) == len(notebook.cells):
-        return False
-    notebook.cells = remaining
-    save_notebook(connection_name, notebook)
+    with _write_lock:
+        notebook = load_notebook(connection_name)
+        remaining = [c for c in notebook.cells if c.id != cell_id]
+        if len(remaining) == len(notebook.cells):
+            return False
+        notebook.cells = remaining
+        save_notebook(connection_name, notebook)
     return True
+
+
+def record_feedback(connection_name: str, *, cell_id: str, rating: str) -> None:
+    """Append a thumbs up/down to the connection's ``feedback.jsonl``.
+
+    The file is the truth; the UI fires and forgets. Lives here with the rest
+    of the per-connection persistence.
+    """
+    path = notebook_path(connection_name).with_name("feedback.jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "cell_id": cell_id,
+        "rating": rating,
+        "at": datetime.now().isoformat(timespec="seconds"),
+    }
+    with path.open("a") as fh:
+        fh.write(json.dumps(entry) + "\n")
 
 
 def _cell_from_answer(

@@ -16,9 +16,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from humbert.config import humbert_home, project_dir
+from humbert.config import Locale, humbert_home, project_dir
 
 logger = logging.getLogger("humbert.theme")
 
@@ -52,9 +52,16 @@ class ThemeConfig(BaseModel):
 
     app_name: str = "Humbert"
     logo_path: str | None = None
-    locale: str = "en"
+    locale: Locale = "en"
     colors: ThemeColors = Field(default_factory=ThemeColors)
     fonts: ThemeFonts = Field(default_factory=ThemeFonts)
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _known_locale(cls, value: object) -> object:
+        # One unknown locale must not unbrand a deployment — keep the rest of
+        # the theme and fall back to English.
+        return value if value in ("en", "nl") else "en"
 
 
 def load_theme(
@@ -84,8 +91,8 @@ def _load_from(path: Path) -> ThemeConfig | None:
         return None
     try:
         return ThemeConfig.model_validate_json(path.read_text())
-    except Exception:
-        logger.warning("Failed to load theme from %s", path)
+    except Exception as err:  # noqa: BLE001 - a bad theme must not take the app down
+        logger.warning("Failed to load theme from %s: %s", path, err)
         return None
 
 

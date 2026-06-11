@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Cell } from "../types/cell";
+import type { Cell, RunSQLRequest } from "../types/cell";
 import { apiSend } from "../utils/api";
 import { t } from "../locales";
 import { consumeSSE } from "../utils/sse";
@@ -29,7 +29,8 @@ export default function CodeView({ cell, onCellUpdate }: CodeViewProps) {
     setRunStage("thinking");
 
     try {
-      const response = await apiSend("/api/run-sql", "POST", { cell_id: cell.id, sql: editedSql });
+      const body: RunSQLRequest = { cell_id: cell.id, sql: editedSql };
+      const response = await apiSend("/api/run-sql", "POST", body);
 
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 

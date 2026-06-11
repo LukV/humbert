@@ -13,21 +13,36 @@ interface ChartRendererProps {
   onHoverData?: (datum: Record<string, unknown> | null) => void;
 }
 
+interface ErrorBoundaryProps {
+  spec: unknown;
+  children: ReactNode;
+}
+
 interface ErrorBoundaryState {
   hasError: boolean;
   error: string;
+  spec: unknown;
 }
 
-class ChartErrorBoundary extends Component<
-  { children: ReactNode },
-  ErrorBoundaryState
-> {
-  constructor(props: { children: ReactNode }) {
+class ChartErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: "" };
+    this.state = { hasError: false, error: "", spec: props.spec };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  // A new spec gets a fresh chance to render — without this, one crash
+  // would blank the chart forever, even after a valid update arrives.
+  static getDerivedStateFromProps(
+    props: ErrorBoundaryProps,
+    state: ErrorBoundaryState,
+  ): Partial<ErrorBoundaryState> | null {
+    if (props.spec !== state.spec) {
+      return { spec: props.spec, hasError: false, error: "" };
+    }
+    return null;
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error: error.message };
   }
 
@@ -280,9 +295,11 @@ export default function ChartRenderer({
   if (renderError) return null;
 
   return (
-    <ChartErrorBoundary>
+    <ChartErrorBoundary spec={fullSpec}>
       <div className="chart-container">
         <VegaLite
+          // react-vega types want its own VisualizationSpec; our spec is a
+          // plain Record built by the backend, so cast at this one boundary.
           spec={fullSpec as never}
           actions={false}
           style={{ width: "100%" }}

@@ -3,7 +3,7 @@ project: humbert
 type: planning-block
 block: notebook
 status: active
-updated: 2026-06-08
+updated: 2026-06-11
 ---
 # Block 2 — Notebook + Orchestration
 
@@ -48,9 +48,11 @@ Shipped as [[../pitches/shipped/the-cell]] — `Cell` + `notebook.json` per conn
 
 *Cut line:* a cell that persists and re-renders faithfully from stored state — narrative, reading, SQL, rows, tier, certainty, and a correct (plain) chart spec.
 
-### Beautiful defaults — *chunky* — **in cycle (2026-06-09)**
+### Beautiful defaults — *chunky* — **shipped 2026-06-10**
 
-Grew from *medium* to *chunky*: this is where the **frontend is introduced**. It renders the two states from the assets — the empty notebook (ask box + suggested questions) and the draft cell — beautifully, with asking done in the browser (synchronous `POST /api/ask`). Built on the seeded skin tokens, skinnable from day one. The chart engine gains a fifth spec — **scatter** for two-measure answers — and otherwise just gets made lovely (Tufte-clean); chart-*type* selection already lives in [[../pitches/the-cell]]. Scatter needs a second cheese metric (`product_variety`), added here. Bars are capped at top-N so broad answers still render composed. Cells can be **deleted** (FE + `DELETE /api/notebook/cells/{id}`); the footer shows `tier · certainty · model`. Pie/camembert and small multiples stay deferred — render a bar. This is pillar 5. Shaped as [[../pitches/beautiful-defaults]].
+Grew from *medium* to *chunky*: this is where the **frontend is introduced**. It renders the two states from the assets — the empty notebook (ask box + suggested questions) and the draft cell — beautifully, with asking done in the browser. Built on the seeded skin tokens, skinnable from day one. The chart engine gains a fifth spec — **scatter** for two-measure answers — and otherwise just gets made lovely (Tufte-clean); chart-*type* selection already lives in [[../pitches/shipped/the-cell]]. Scatter needs a second cheese metric (`product_variety`), added here. Bars are capped at top-N so broad answers still render composed. Cells can be **deleted**; the footer shows `tier · certainty · model`. Pie/camembert and small multiples stay deferred — render a bar. This is pillar 5.
+
+Shipped as [[../pitches/shipped/beautiful-defaults]] — the React notebook UI over `POST /api/ask` (SSE: stage events, reasoning stream, the finished cell), cell delete, light/dark, en/nl chrome.
 
 *Cut line:* from an empty notebook, ask and get a beautifully-rendered, persisted draft cell; asking again appends a cell; deleting one removes it; it holds on the `proef` skin as well as the default.
 

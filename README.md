@@ -113,8 +113,6 @@ Settings live in `~/.humbert/config.json`. The two blocks you'll touch:
     "api_key_env": "ANTHROPIC_API_KEY" // which env var holds the key
   },
   "settings": {
-    "max_result_rows": 1000,          // row cap on a query
-    "statement_timeout_seconds": 30,
     "theme": "humbert",               // skin
     "locale": "en"                    // en / nl
   }
@@ -125,42 +123,26 @@ To ask with a different model, change `llm.model`; to point at another key, chan
 
 ### Tuning the look (skins)
 
-The whole interface is built from a handful of **design tokens** — colours and fonts — so changing the look is changing tokens, not components. Tokens live in [`apps/web/src/styles/theme.css`](apps/web/src/styles/theme.css) as a Tailwind `@theme` block:
+The interface is built from a handful of **design tokens** — colours and fonts as CSS variables in [`apps/web/src/styles.css`](apps/web/src/styles.css) — so changing the look is changing token values, not components. A deployment overrides them with a **`theme.json`** that sits next to the connection it brands — no rebuild needed:
 
-```css
-@theme {
-  --color-paper: #fbfaf7;   /* the page background */
-  --color-surface: #ffffff; /* the header bar and cards, raised above paper */
-  --color-ink: #1a1a1a;     /* text */
-  --color-brand: #4a2d4f;   /* aubergine — reserved for validation */
-  --color-caution: #b8860b; /* amber — caution / the accent figure */
-
-  --font-narrative: "Source Serif 4", Georgia, serif; /* the answer prose */
-  --font-ui: "DM Sans", system-ui, sans-serif;        /* labels, metadata */
-  --font-mono: "JetBrains Mono", ui-monospace, monospace; /* SQL */
+```jsonc
+// ~/.humbert/projects/<connection>/theme.json  (or ~/.humbert/theme.json for all of them)
+{
+  "app_name": "Proef",
+  "locale": "nl",
+  "colors": { "primary": "#4A2D4F", "secondary": "#C2876E", "accent": "#6B8F8A" },
+  "fonts": { "body": "DM Sans", "editorial": "Source Serif 4", "mono": "JetBrains Mono" }
 }
 ```
 
-**Experiment quickly** — edit those values, then rebuild (`cd apps/web && npm run build`) and reload. Change `--color-paper` for the background; change `--font-narrative` / `--font-ui` for the type. If you point a font token at a face that isn't installed, add it first — the three defaults are self-hosted via Fontsource (imported in [`apps/web/src/main.tsx`](apps/web/src/main.tsx)); to add another, `npm install @fontsource/<face>` and import its weights there, or drop in an `@font-face` / web-font `<link>`.
-
-**A reusable skin** — rather than editing the defaults, add a skin file that overrides only what you want, scoped to its name:
-
-```css
-/* apps/web/src/styles/skins/dusk.css */
-:root[data-skin="dusk"] {
-  --color-paper: #f4f1ec;
-  --font-narrative: "Lora", Georgia, serif;
-}
-```
-
-Import it near the top of `theme.css` (`@import "./skins/dusk.css";`), set `"theme": "dusk"` in `settings` of `config.json`, and rebuild. The active skin is injected onto `<html data-skin="…">` server-side, so there's no flash of the default. (`humbert status` shows which skin is active.)
+The server resolves the chain (project file → global file → built-in defaults) and hands the result to the SPA via `GET /api/theme`; the active skin and locale are injected onto `<html>` server-side, so there's no flash of the default. Restart `humbert start` and reload to see a change. The full guide — palettes, custom font CSS, logos — is in [`docs/technical/001-information-manager-instructions.md`](docs/technical/001-information-manager-instructions.md).
 
 ## Layout
 
 ```
 apps/
   api/   # Python 3.13 backend (uv): runtime, semantic-layer engine, CLI
-  web/   # React + TS + Vite + Tailwind v4 SPA, served by the backend
+  web/   # React + TS + Vite SPA (plain CSS, token-based), served by the backend
 examples/
   cheese/  # the bundled dbt + DuckDB example (see its README)
 docs/      # design, architecture, planning

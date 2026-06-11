@@ -6,3 +6,8 @@ update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
 major_version_zero = true
 bump_message = "chore(release): bump version to $new_version"
+version_files = [
+    "apps/api/pyproject.toml:^version",
+    "apps/api/src/humbert/__init__.py:__version__",
+    "apps/web/package.json:\"version\"",
+]

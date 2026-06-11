@@ -69,7 +69,7 @@ def chart_spec(
 
     # One row, one measure, nothing grouped → a single number.
     if not groups and len(rows) == 1:
-        value = _num(rows[0][columns.index(value_field)])
+        value = parse_number(rows[0][columns.index(value_field)])
         return _number_spec(value_field, value)
 
     # One grouping → line if it's over time, bar otherwise.
@@ -77,7 +77,7 @@ def chart_spec(
         dim_field = _dimension_column(columns, value_field)
         if dim_field is None:
             return None
-        data = _records(columns, rows, value_field)
+        data = rows_to_records(columns, rows, {value_field})
         if vocabulary.is_time_dimension(groups[0]):
             return _line_spec(dim_field, value_field, data)
         return _bar_spec(dim_field, value_field, _top_n(data, value_field))
@@ -108,7 +108,7 @@ def _scatter(
     label_field = next((c for c in columns if c not in measures), None)
     if label_field is None:
         return None
-    data = _records(columns, rows, measures)
+    data = rows_to_records(columns, rows, set(measures))
     return _scatter_spec(x_field, y_field, label_field, data)
 
 
@@ -142,7 +142,7 @@ def _time_series_by_category(
     if len({row[series_index] for row in rows}) > _MAX_SERIES:
         return None
 
-    data = _records(columns, rows, value_field)
+    data = rows_to_records(columns, rows, {value_field})
     return _multi_line_spec(time_field, value_field, series_field, data)
 
 
@@ -164,21 +164,25 @@ def _dimension_column(columns: list[str], value_field: str) -> str | None:
     return next((c for c in columns if c != value_field), None)
 
 
-def _records(
-    columns: list[str], rows: list[list[str]], value_fields: str | list[str]
+def rows_to_records(
+    columns: list[str], rows: list[list[str]], measures: set[str]
 ) -> list[dict[str, Any]]:
-    """Rows as Vega-Lite records, with the measure column(s) coerced to numbers."""
-    measures = {value_fields} if isinstance(value_fields, str) else set(value_fields)
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        record: dict[str, Any] = {}
-        for col, cell in zip(columns, row, strict=False):
-            record[col] = _num(cell) if col in measures else cell
-        out.append(record)
-    return out
+    """Rows as records, with the measure columns coerced to numbers.
+
+    Humbert stores result values as text, but Vega-Lite (and the SPA's tables)
+    need numbers under quantitative encodings. This is the one place that
+    coercion lives — ``server.wire`` reuses it for the wire shape.
+    """
+    return [
+        {
+            col: parse_number(cell) if col in measures else cell
+            for col, cell in zip(columns, row, strict=False)
+        }
+        for row in rows
+    ]
 
 
-def _num(cell: str) -> Any:
+def parse_number(cell: str) -> Any:
     """Parse a cell to a number when it is one; leave it as text otherwise."""
     try:
         value = float(cell)
