@@ -44,15 +44,31 @@ def _root(
 
 
 @app.command()
-def init(name: str = typer.Argument("default", help="Project name.")) -> None:
-    """Scaffold ``~/.humbert/`` and register a project. Idempotent."""
+def init(
+    path: Path | None = typer.Argument(
+        None,
+        help="Directory to scaffold as a pack (adds a context/ folder). "
+        "Omit to just set up Humbert's home.",
+    ),
+) -> None:
+    """Set up Humbert's home; with PATH, scaffold a pack there. Idempotent."""
     config: Config = load_config()
-    cache = project_dir(name)
-    cache.mkdir(parents=True, exist_ok=True)
     save_config(config)  # ensures config.json exists
-    typer.echo(f"Initialised Humbert project '{name}'.")
+    typer.echo("Humbert is ready.")
     typer.echo(f"  config: {config_path()}")
-    typer.echo(f"  cache:  {cache}")
+
+    if path is None:
+        return
+
+    target = path.expanduser().resolve()
+    created = semantic.scaffold_pack(target)
+    typer.echo("")
+    if created:
+        typer.echo(f"Scaffolded a pack at {target}:")
+    else:
+        typer.echo(f"Pack at {target} already in place:")
+    typer.echo("  context/   db dumps, data dictionaries, source notes")
+    typer.echo("  README.md  what a pack holds and how to fill it")
 
 
 @app.command()

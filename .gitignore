@@ -223,3 +223,4 @@ examples/**/logs/
 examples/**/warehouse.duckdb
 examples/**/warehouse.duckdb.wal
 examples/**/.user.yml
+examples/lvtm

@@ -64,6 +64,46 @@ def test_spa_injects_shell_from_config(tmp_path: Path) -> None:
     assert 'lang="en"' in response.text
 
 
+def test_theme_endpoint_falls_back_to_settings(tmp_path: Path) -> None:
+    cfg = Config()
+    cfg.settings.app_name = "Humbert"
+    body = TestClient(create_app(cfg, dist=tmp_path)).get("/api/theme").json()
+    assert body["app_name"] == "Humbert"
+    assert body["custom_css"] is None
+    assert body["css_vars"]["--accent"] == "#4A2D4F"  # the default skin
+
+
+def test_theme_endpoint_reads_a_project_theme_json(home: Path) -> None:
+    proj = home / "projects" / "cheese"
+    proj.mkdir(parents=True)
+    (proj / "theme.json").write_text(
+        json.dumps(
+            {
+                "app_name": "proef",
+                "locale": "nl",
+                "colors": {"primary": "#2B979D", "palette": ["#2B979D", "#CC5621", "#5D6009"]},
+                "fonts": {"body": "Flanders Art Sans", "custom_css": "/fonts/flanders-fonts.css"},
+            }
+        )
+    )
+    body = TestClient(create_app(_connected_config(), dist=home)).get("/api/theme").json()
+    assert body["app_name"] == "proef"
+    assert body["locale"] == "nl"
+    assert body["custom_css"] == "/fonts/flanders-fonts.css"
+    assert body["css_vars"]["--accent"] == "#2B979D"
+    assert body["css_vars"]["--font-body"].startswith('"Flanders Art Sans"')
+    assert "#2B979D" in body["css_vars"]["--chart-palette"]
+
+
+def test_fonts_are_served_when_the_skin_ships_them(home: Path) -> None:
+    (home / "fonts").mkdir()
+    (home / "fonts" / "flanders-fonts.css").write_text("/* faces */")
+    client = TestClient(create_app(_connected_config(), dist=home))
+    response = client.get("/fonts/flanders-fonts.css")
+    assert response.status_code == 200
+    assert "/* faces */" in response.text
+
+
 def test_spa_without_build_is_graceful(tmp_path: Path) -> None:
     client = TestClient(create_app(Config(), dist=tmp_path))
     response = client.get("/anything")
@@ -191,21 +231,6 @@ def test_patch_renames_a_cell(home: Path, monkeypatch: pytest.MonkeyPatch) -> No
     patched = client.patch(f"/api/cells/{cell['id']}", json={"title": "Cheese leaders"})
     assert patched.status_code == 200
     assert patched.json()["title"] == "Cheese leaders"
-
-
-def test_health_reports_ok_with_warehouse_and_metrics(
-    home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from humbert import engine
-
-    warehouse = home / "warehouse.duckdb"
-    warehouse.write_text("")
-    monkeypatch.setattr(engine, "warehouse_path", lambda p: warehouse)
-    monkeypatch.setattr(engine, "metric_names", lambda p: ["total_production"])
-
-    client = TestClient(create_app(_connected_config(), dist=home))
-    body = client.get("/api/health").json()
-    assert body == {"ok": True, "connection_name": "cheese", "database": "cheese"}
 
 
 def test_ask_without_a_key_is_a_quiet_error(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

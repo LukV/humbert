@@ -36,6 +36,7 @@ from pydantic import BaseModel
 
 from humbert import engine, notebook, orchestrator, semantic, webapi
 from humbert.config import Config
+from humbert.theme import ThemeConfig, load_theme, theme_to_css_vars
 
 # Orchestrator stage keys → the frontend's stage vocabulary (see locales).
 _STAGE_MAP = {
@@ -85,7 +86,7 @@ class Feedback(BaseModel):
 def create_app(config: Config, dist: Path | None = None) -> FastAPI:
     dist = dist or web_dist()
     settings = config.settings
-    app = FastAPI(title="Humbert", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Humbert", docs_url="/docs", redoc_url=None)
 
     # Discovering the vocabulary shells out to dbt/mf, so memoise it per project
     # for the life of the server — it doesn't change while the process runs.
@@ -116,14 +117,21 @@ def create_app(config: Config, dist: Path | None = None) -> FastAPI:
 
     @app.get("/api/theme")
     def theme() -> JSONResponse:
-        """App name, locale, and any theme overrides the SPA applies on load."""
+        """App name, locale, and the skin overrides the SPA applies on load.
+
+        Branding comes from an optional ``theme.json`` beside the active
+        connection (see :mod:`humbert.theme`); absent one, it falls back to the
+        ``config.json`` settings, so the default skin is unchanged.
+        """
+        base = ThemeConfig(app_name=settings.app_name, locale=settings.locale)
+        loaded = load_theme(config.active_connection, fallback=base)
         return JSONResponse(
             {
-                "app_name": settings.app_name,
-                "locale": settings.locale,
-                "logo_path": None,
-                "custom_css": None,
-                "css_vars": {},
+                "app_name": loaded.app_name,
+                "locale": loaded.locale,
+                "logo_path": loaded.logo_path,
+                "custom_css": loaded.fonts.custom_css,
+                "css_vars": theme_to_css_vars(loaded),
             }
         )
 
@@ -159,8 +167,10 @@ def create_app(config: Config, dist: Path | None = None) -> FastAPI:
             return JSONResponse({"error": "Ask a question first."}, status_code=400)
 
         try:
-            vocabulary = vocabulary_for(project)
+            # Build the model first: it's a cheap env-var check, so a missing key
+            # fails in milliseconds rather than after the (slow) vocabulary build.
             model = orchestrator.build_model(config.llm)
+            vocabulary = vocabulary_for(project)
         except orchestrator.OrchestratorError as err:
             # No API key, or an unsupported provider — a setup problem, not a bad answer.
             return JSONResponse({"error": str(err)}, status_code=400)
@@ -253,25 +263,9 @@ def create_app(config: Config, dist: Path | None = None) -> FastAPI:
             fh.write(json.dumps(record) + "\n")
         return JSONResponse({"ok": True})
 
-    @app.get("/api/health")
-    def health() -> JSONResponse:
-        """A compact, pollable signal the SPA topbar reads: is the stack up?"""
-        active = active_project()
-        if active is None:
-            return JSONResponse({"ok": False})
-        name, project = active
-        warehouse_ok = engine.warehouse_path(project).exists()
-        try:
-            metrics_ok = len(engine.metric_names(project)) > 0
-        except engine.EngineError:
-            metrics_ok = False
-        return JSONResponse(
-            {"ok": warehouse_ok and metrics_ok, "connection_name": name, "database": name}
-        )
-
     @app.get("/api/healthz")
     def healthz() -> JSONResponse:
-        """The detailed health view (named checks), kept for the CLI/diagnostics.
+        """Health for both the SPA topbar and the CLI/diagnostics — named checks.
 
         Lightweight by design (fast file reads, no dbt subprocess): the active
         connection is configured, the warehouse file is present, and the semantic
@@ -292,12 +286,19 @@ def create_app(config: Config, dist: Path | None = None) -> FastAPI:
         name, project = active
         checks: list[dict[str, object]] = [{"name": "connection", "ok": True, "detail": name}]
 
-        warehouse_ok = engine.warehouse_path(project).exists()
+        warehouse = engine.warehouse_path(project)
+        warehouse_ok = warehouse.exists()
         checks.append(
             {
                 "name": "warehouse",
                 "ok": warehouse_ok,
-                "detail": "ready" if warehouse_ok else "not built — run `humbert connect --build`",
+                # Name the resolved file so a profile/path mismatch is visible
+                # here (the warehouse points where profiles.yml says it does).
+                "detail": (
+                    f"ready ({warehouse.name})"
+                    if warehouse_ok
+                    else f"not found at {warehouse.name} — run `humbert connect --build`"
+                ),
             }
         )
 
@@ -325,6 +326,12 @@ def create_app(config: Config, dist: Path | None = None) -> FastAPI:
     assets = dist / "assets"
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    # Skins may ship fonts (e.g. a theme's `custom_css` at `/fonts/...`). The SPA
+    # catch-all below would otherwise answer these with the HTML shell.
+    fonts = dist / "fonts"
+    if fonts.is_dir():
+        app.mount("/fonts", StaticFiles(directory=fonts), name="fonts")
 
     @app.get("/", response_class=HTMLResponse)
     @app.get("/{_path:path}", response_class=HTMLResponse)

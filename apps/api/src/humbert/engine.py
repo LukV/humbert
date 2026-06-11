@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+import yaml
+
 Severity = Literal["fatal", "degraded"]
 DimensionKind = Literal["categorical", "time"]
 
@@ -56,9 +58,51 @@ def is_dbt_project(path: Path) -> bool:
     return (path / "dbt_project.yml").is_file()
 
 
+def _read_yaml(path: Path) -> dict[str, object]:
+    """Best-effort YAML read; ``{}`` if the file is missing or isn't a mapping."""
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def warehouse_path(project_dir: Path) -> Path:
-    """By convention the example writes its DuckDB file here."""
-    return project_dir / "warehouse.duckdb"
+    """The DuckDB file the dbt build writes, resolved from the pack's profile.
+
+    profiles.yml owns the warehouse location (`outputs.<target>.path`), so we read
+    it from there rather than assuming a filename — a pack scaffolded by `dbt init`
+    writes `dev.duckdb`, the examples write `warehouse.duckdb`, others may differ.
+    The profile is chosen by `dbt_project.yml`'s `profile:` key; the target by the
+    profile's `target:` (or the sole output if there's just one). Relative paths
+    resolve against the project dir, where the engine runs dbt. Falls back to the
+    conventional `warehouse.duckdb` when the profile can't be read.
+    """
+    fallback = project_dir / "warehouse.duckdb"
+
+    profile_name = _read_yaml(project_dir / "dbt_project.yml").get("profile")
+    if not isinstance(profile_name, str):
+        return fallback
+    profile = _read_yaml(project_dir / "profiles.yml").get(profile_name)
+    if not isinstance(profile, dict):
+        return fallback
+
+    outputs = profile.get("outputs")
+    if not isinstance(outputs, dict) or not outputs:
+        return fallback
+    target = profile.get("target")
+    output = outputs.get(target) if isinstance(target, str) else None
+    if not isinstance(output, dict):
+        # No usable target: a single-output profile has only one answer.
+        if len(outputs) != 1:
+            return fallback
+        output = next(iter(outputs.values()))
+
+    path = output.get("path") if isinstance(output, dict) else None
+    if not isinstance(path, str) or not path:
+        return fallback
+    resolved = Path(path).expanduser()
+    return resolved if resolved.is_absolute() else project_dir / resolved
 
 
 def ensure_available() -> None:

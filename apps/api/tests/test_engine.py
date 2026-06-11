@@ -43,8 +43,50 @@ def test_is_dbt_project(tmp_path: Path) -> None:
     assert engine.is_dbt_project(tmp_path)
 
 
-def test_warehouse_path(tmp_path: Path) -> None:
+def test_warehouse_path_falls_back_without_profile(tmp_path: Path) -> None:
+    # No dbt_project.yml / profiles.yml to read: the conventional name stands.
     assert engine.warehouse_path(tmp_path) == tmp_path / "warehouse.duckdb"
+
+
+def _write_pack(project: Path, profile: str, profiles_body: str) -> None:
+    (project / "dbt_project.yml").write_text(f"name: domain\nprofile: '{profile}'\n")
+    (project / "profiles.yml").write_text(profiles_body)
+
+
+def test_warehouse_path_reads_active_target_from_profiles(tmp_path: Path) -> None:
+    # The active target (`dev`) selects the output whose `path` Humbert resolves.
+    _write_pack(
+        tmp_path,
+        "domain",
+        "domain:\n"
+        "  target: dev\n"
+        "  outputs:\n"
+        "    dev:\n"
+        "      type: duckdb\n"
+        "      path: dev.duckdb\n"
+        "    prod:\n"
+        "      type: duckdb\n"
+        "      path: prod.duckdb\n",
+    )
+    assert engine.warehouse_path(tmp_path) == tmp_path / "dev.duckdb"
+
+
+def test_warehouse_path_resolves_relative_path_against_project(tmp_path: Path) -> None:
+    _write_pack(
+        tmp_path,
+        "domain",
+        "domain:\n  target: dev\n  outputs:\n    dev:\n      path: build/wh.duckdb\n",
+    )
+    assert engine.warehouse_path(tmp_path) == tmp_path / "build" / "wh.duckdb"
+
+
+def test_warehouse_path_uses_sole_output_when_target_missing(tmp_path: Path) -> None:
+    _write_pack(
+        tmp_path,
+        "domain",
+        "domain:\n  outputs:\n    only:\n      path: one.duckdb\n",
+    )
+    assert engine.warehouse_path(tmp_path) == tmp_path / "one.duckdb"
 
 
 def test_ensure_available_reports_missing(monkeypatch: pytest.MonkeyPatch) -> None:

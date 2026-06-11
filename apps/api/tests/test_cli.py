@@ -43,16 +43,40 @@ def test_version() -> None:
     assert __version__ in result.stdout
 
 
-def test_init_creates_config_and_cache(home: Path) -> None:
-    result = runner.invoke(app, ["init", "cheese"])
+def test_init_creates_config(home: Path) -> None:
+    result = runner.invoke(app, ["init"])
     assert result.exit_code == 0
     assert (home / "config.json").exists()
-    assert (home / "projects" / "cheese").is_dir()
 
 
 def test_init_is_idempotent(home: Path) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["init"]).exit_code == 0
+
+
+def test_init_scaffolds_a_pack_at_path(home: Path, tmp_path: Path) -> None:
+    pack = tmp_path / "mypack"
+    result = runner.invoke(app, ["init", str(pack)])
+    assert result.exit_code == 0
+    assert (pack / "context").is_dir()
+    assert (pack / "context" / "README.md").exists()
+    assert (pack / "README.md").exists()
+    assert "Scaffolded a pack" in result.stdout
+    assert "context/" in result.stdout
+
+
+def test_init_pack_is_idempotent_and_keeps_edits(home: Path, tmp_path: Path) -> None:
+    pack = tmp_path / "mypack"
+    runner.invoke(app, ["init", str(pack)])
+    # The IM parks a document and tweaks the README.
+    (pack / "context" / "dump.sql").write_text("-- a db dump")
+    (pack / "README.md").write_text("my notes")
+
+    result = runner.invoke(app, ["init", str(pack)])
+    assert result.exit_code == 0
+    assert "already in place" in result.stdout
+    assert (pack / "context" / "dump.sql").read_text() == "-- a db dump"
+    assert (pack / "README.md").read_text() == "my notes"  # not clobbered
 
 
 def test_status_without_connection(home: Path) -> None:

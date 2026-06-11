@@ -8,10 +8,16 @@ import InputBar from "./components/InputBar";
 import ReasoningStream from "./components/ReasoningStream";
 import StageIndicator from "./components/StageIndicator";
 
-interface HealthData {
+interface HealthCheck {
+  name: string;
   ok: boolean;
-  connection_name?: string;
-  database?: string;
+  detail: string;
+}
+
+interface HealthData {
+  status: "ok" | "degraded" | "down";
+  project: string | null;
+  checks: HealthCheck[];
 }
 
 interface ThemeData {
@@ -65,6 +71,10 @@ export default function App() {
   const [reasoningText, setReasoningText] = useState("");
   const [appName, setAppName] = useState("Humbert");
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  // A setup problem returned by /api/ask (no connection / no API key). Shown in
+  // the same under-header banner as a connection failure, not the inline cell
+  // error — it's a configuration issue, not a bad answer.
+  const [setupError, setSetupError] = useState<string | null>(null);
   const resultsScrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Read inside setInterval to avoid recreating the timer every time the
@@ -107,10 +117,10 @@ export default function App() {
         .catch(() => console.warn("Failed to fetch suggestions"));
 
     const loadHealth = () =>
-      apiGet<HealthData>("/api/health", { retry: true })
+      apiGet<HealthData>("/api/healthz", { retry: true })
         .then((data) => {
           setHealth(data);
-          if (data.ok) setConnectionError(null);
+          if (data.status === "ok") setConnectionError(null);
         })
         .catch(() => {
           setHealth(null);
@@ -140,10 +150,10 @@ export default function App() {
   useEffect(() => {
     const intervalMs = connectionError ? 2_000 : 30_000;
     const interval = setInterval(() => {
-      apiGet<HealthData>("/api/health")
+      apiGet<HealthData>("/api/healthz")
         .then((data) => {
           setHealth(data);
-          if (data.ok && connectionErrorRef.current) {
+          if (data.status === "ok" && connectionErrorRef.current) {
             setConnectionError(null);
           }
         })
@@ -189,6 +199,7 @@ export default function App() {
 
       setIsProcessing(true);
       setError(null);
+      setSetupError(null);
       setCurrentStage("thinking");
       setReasoningText("");
 
@@ -213,6 +224,12 @@ export default function App() {
             if (data.error) message = data.error;
           } catch {
             /* not JSON — keep the status message */
+          }
+          // 400 is a configuration problem, not a failed answer: surface it in
+          // the header banner (same component as a connection failure) and stop.
+          if (response.status === 400) {
+            setSetupError(message);
+            return;
           }
           throw new Error(message);
         }
@@ -250,8 +267,8 @@ export default function App() {
     [lastCellId],
   );
 
-  const isConnected = health?.ok === true;
-  const connectionLabel = health?.database || health?.connection_name;
+  const isConnected = health?.status === "ok";
+  const connectionLabel = health?.project ?? undefined;
 
   return (
     <div className="app">
@@ -315,17 +332,23 @@ export default function App() {
         </div>
       </header>
 
-      {/* Connection error banner */}
-      {connectionError && (
+      {/* Connection / setup error banner. A connection failure (server down)
+          takes precedence and offers a reload; a setup error (no API key) is a
+          config fix, so it just dismisses. Same component for both. */}
+      {(connectionError || setupError) && (
         <div className="connection-error-banner">
-          <span>{connectionError}</span>
+          <span>{connectionError ?? setupError}</span>
           <button
             onClick={() => {
-              setConnectionError(null);
-              window.location.reload();
+              if (connectionError) {
+                setConnectionError(null);
+                window.location.reload();
+              } else {
+                setSetupError(null);
+              }
             }}
           >
-            {t("connection.retry")}
+            {connectionError ? t("connection.retry") : t("error.dismiss")}
           </button>
         </div>
       )}

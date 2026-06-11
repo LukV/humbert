@@ -177,6 +177,73 @@ def load_pack(project_dir: Path) -> Pack:
     return Pack(vocabulary=Vocabulary(metrics=metrics), withheld=withheld)
 
 
+PACK_README = """\
+# Pack
+
+This folder is a Humbert pack — the governed slice of data Humbert reads from.
+The pack is the semantic model: the metrics and dimensions Humbert can answer
+questions about, defined in dbt + MetricFlow.
+
+## What's here
+
+- `context/` — working material for whoever builds and maintains the pack:
+  database dumps, data dictionaries, source notes. Humbert doesn't read this when
+  answering questions; it lives here so the knowledge stays with the pack instead
+  of in someone's head.
+
+More folders join as the pack grows:
+
+- `domain/` — the dbt semantic models, with their labels, aliases, and the
+  `open` classification that decides what Humbert may expose. *(coming)*
+- `introspection/` — cached schema and profiling. *(coming)*
+- `tests/` — the evaluation set that keeps answers honest. *(coming)*
+
+## Next
+
+Add a dbt project here, then point Humbert at this folder:
+
+    humbert connect <this-folder>
+"""
+
+CONTEXT_README = """\
+# Context
+
+Working material for whoever builds and maintains this pack. Humbert doesn't read
+it when answering questions — it's here for design time.
+
+Put anything that helps you model the data well, and remember why it's shaped the
+way it is:
+
+- database dumps and schema exports
+- data dictionaries and codebooks
+- source notes: where the data comes from, how it's collected, what's missing
+- known pitfalls and caveats
+
+Keep it human, and keep it close to the work. When the pack changes, update the
+notes here too.
+"""
+
+
+def scaffold_pack(path: Path) -> list[Path]:
+    """Scaffold a pack overlay at ``path``: a ``context/`` folder for design-time
+    documents (db dumps, data dictionaries, source notes) and READMEs that explain
+    the layout. Idempotent — existing files are left untouched, and the list of
+    paths actually created is returned.
+    """
+    context = path / "context"
+    files = {path / "README.md": PACK_README, context / "README.md": CONTEXT_README}
+    created: list[Path] = []
+    for directory in (path, context):
+        if not directory.exists():
+            directory.mkdir(parents=True)
+            created.append(directory)
+    for file, body in files.items():
+        if not file.exists():
+            file.write_text(body)
+            created.append(file)
+    return created
+
+
 def discover_vocabulary(project_dir: Path) -> Vocabulary:
     """The exposed vocabulary — the pack with the guard already applied."""
     return load_pack(project_dir).vocabulary

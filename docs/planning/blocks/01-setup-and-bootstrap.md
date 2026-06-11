@@ -9,8 +9,6 @@ updated: 2026-06-08
 
 The ground floor. Nothing else can be built or tested until the project stands up and a question can reach governed data. This block does three things: scaffolds the repo and its discipline, builds the CLI path (`init` → `connect` → `start`), and stands up the **semantic-layer module** ([[../../product-design/004-semantic-layer]]) so Tier 1 has a vocabulary to read.
 
-A slimmed port of `lumen/README.md` is the starting point for the CLI and the project shape — but `connect` now points at a dbt project (MetricFlow), not a raw database.
-
 **Done enough:** `humbert init` scaffolds a project; `humbert connect` attaches a dbt + MetricFlow source and the semantic-layer module exposes its metrics and dimensions; `humbert start` runs. No notebook UI yet — that's block 2. The semantic layer can answer "what metrics and dimensions exist, and does this proposed selection resolve against them?" — the propose-then-validate interface block 2 will call.
 
 Design: [[../../product-design/004-semantic-layer]]. Stack: [[../../architecture/001-stack-decisions]].

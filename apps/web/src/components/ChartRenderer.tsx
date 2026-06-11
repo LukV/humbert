@@ -57,7 +57,49 @@ const DARK_COLOR_MAP: Record<string, string> = {
   "#A3667E": "#C08A9E",
 };
 
+// The dark-mode fallback for the built-in skin: the default series palette,
+// lightened for the dark background. A custom skin supplies its own via
+// `--chart-palette` (see `categoryRange`).
 const DARK_PALETTE = ["#9B7BA0", "#D4A08A", "#7FABA5", "#D4C46E", "#A99888", "#C08A9E"];
+
+// The `--chart-palette` value the backend emits for the built-in skin
+// (humbert.theme.theme_to_css_vars of the defaults). When the active skin's
+// palette equals this, we leave the hand-tuned per-mode defaults in place — the
+// spec's own series colors in light, DARK_PALETTE in dark — so the default look
+// is unchanged. Keep in sync with humbert/theme.py's ThemeColors defaults.
+const DEFAULT_CHART_PALETTE = "#4A2D4F,#C2876E,#6B8F8A,#B8A44C,#8C7B6B,#A3667E";
+
+/** The active skin's chart palette from `--chart-palette`, or null when it's the
+ * built-in default (so the tuned per-mode palettes stand). */
+function customPalette(): string[] | null {
+  const raw = cssVar("--chart-palette", "");
+  if (!raw || raw === DEFAULT_CHART_PALETTE) return null;
+  return raw.split(",").map((c) => c.trim()).filter(Boolean);
+}
+
+/** The category color range to inject, or [] to leave the spec's colors alone.
+ * The default skin keeps its defaults; a custom skin overrides both modes — in
+ * dark, known default colors are remapped for contrast and brand colors pass
+ * through (the skin author owns dark-mode legibility). */
+function categoryRange(theme: Theme): string[] {
+  const custom = customPalette();
+  if (theme === "dark") {
+    return (custom ?? DARK_PALETTE).map((c) => DARK_COLOR_MAP[c.toUpperCase()] ?? c);
+  }
+  return custom ?? [];
+}
+
+/** Merge a category color range into a spec's Vega-Lite config. */
+function withCategoryRange(
+  spec: Record<string, unknown>,
+  category: string[],
+): Record<string, unknown> {
+  const s = { ...spec };
+  const config = { ...(s.config as Record<string, unknown> ?? {}) };
+  config.range = { ...(config.range as Record<string, unknown> ?? {}), category };
+  s.config = config;
+  return s;
+}
 
 // Axis/legend/title overrides read live from CSS so they track theme tokens
 // instead of duplicating them. Vega-Lite has its own theme system separate
@@ -109,11 +151,9 @@ function applyDarkTheme(spec: Record<string, unknown>): Record<string, unknown> 
   const axis = { ...(config.axis as Record<string, unknown> ?? {}), ...darkAxisOverrides() };
   const legend = { ...(config.legend as Record<string, unknown> ?? {}), ...darkLegendOverrides() };
   const title = { ...(config.title as Record<string, unknown> ?? {}), ...darkTitleOverrides() };
-  const range = { ...(config.range as Record<string, unknown> ?? {}), category: DARK_PALETTE };
   config.axis = axis;
   config.legend = legend;
   config.title = title;
-  config.range = range;
   s.config = config;
 
   // Remap hardcoded color values in top-level encoding
@@ -178,6 +218,13 @@ export default function ChartRenderer({
     // Apply dark theme overrides
     if (theme === "dark") {
       s = applyDarkTheme(s);
+    }
+
+    // The active skin's palette drives the category color range. A no-op for the
+    // default skin (its tuned per-mode palettes stand); a custom skin overrides.
+    const category = categoryRange(theme);
+    if (category.length) {
+      s = withCategoryRange(s, category);
     }
 
     if (hoverEnabled) {
