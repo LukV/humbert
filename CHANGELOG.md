@@ -1,3 +1,9 @@
+## v0.16.1 (2026-06-11)
+
+### Fix
+
+- **theme**: remove hardcoded example domain references to correctly load the team linked to the domain
+
 ## v0.16.0 (2026-06-10)
 
 ### Feat
